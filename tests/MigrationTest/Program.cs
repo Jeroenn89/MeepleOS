@@ -23,6 +23,17 @@ try
             """);
     }
 
+    await using (var expansionDb = new MeepleDbContext(options))
+    {
+        await expansionDb.GetService<IMigrator>().MigrateAsync("20261111150748_AddGameExpansions");
+        await expansionDb.Database.ExecuteSqlRawAsync("""
+            INSERT INTO GameExpansions (Id, BoardGameId, Name, NormalizedName)
+            VALUES (1, 1, 'Helden', 'HELDEN');
+            INSERT INTO GameSessionExpansions (GameSessionId, GameExpansionId)
+            VALUES (1, 1);
+            """);
+    }
+
     await using (var upgradedDb = new MeepleDbContext(options))
     {
         await upgradedDb.Database.MigrateAsync();
@@ -30,12 +41,15 @@ try
             await upgradedDb.Players.CountAsync() != 1 ||
             await upgradedDb.GameSessions.CountAsync() != 1 ||
             await upgradedDb.SessionPlayers.CountAsync() != 1 ||
-            await upgradedDb.GameExpansions.CountAsync() != 0 ||
-            await upgradedDb.GameSessionExpansions.CountAsync() != 0)
+            await upgradedDb.GameExpansions.CountAsync() != 1 ||
+            await upgradedDb.GameSessionExpansions.CountAsync() != 1)
             throw new Exception("De migratie heeft bestaande gegevens gewijzigd of nieuwe tabellen ontbreken.");
+        var game = await upgradedDb.Boardgames.SingleAsync();
+        if (game.MaxPlayers != 4 || game.MinPlayers != 2)
+            throw new Exception("De bestaande spelerslimieten zijn niet behouden.");
         var session = await upgradedDb.GameSessions.Include(x => x.Expansions).SingleAsync();
-        if (session.Expansions.Count != 0)
-            throw new Exception("Bestaande potjes moeten zonder uitbreidingen geldig blijven.");
+        if (session.Expansions.Count != 1)
+            throw new Exception("De koppeling tussen potje en uitbreiding is niet behouden.");
     }
 
     Console.WriteLine("Migratietest geslaagd: bestaand SQLite-schema en gegevens behouden.");

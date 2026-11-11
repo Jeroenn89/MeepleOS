@@ -8,7 +8,7 @@ namespace MeepleOS.DataLayer.Repositories;
 
 public sealed class BoardgameRepository(IDbContextFactory<MeepleDbContext> dbFactory) : IBoardgameRepository
 {
-    public async Task<BoardgameResult> AddAsync(string name, int minPlayers, int maxPlayers, int estimatedMinutes)
+    public async Task<BoardgameResult> AddAsync(string name, int minPlayers, int? maxPlayers, int estimatedMinutes)
     {
         await using var db = await dbFactory.CreateDbContextAsync();
         var game = new Boardgame
@@ -45,7 +45,7 @@ public sealed class BoardgameRepository(IDbContextFactory<MeepleDbContext> dbFac
             .SingleOrDefaultAsync();
     }
 
-    public async Task<BoardgameResult?> UpdateAsync(int id, string name, int minPlayers, int maxPlayers, int estimatedMinutes)
+    public async Task<BoardgameResult?> UpdateAsync(int id, string name, int minPlayers, int? maxPlayers, int estimatedMinutes)
     {
         await using var db = await dbFactory.CreateDbContextAsync();
         var game = await db.Boardgames.FindAsync(id);

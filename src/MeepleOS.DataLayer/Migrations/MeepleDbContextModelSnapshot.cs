@@ -26,7 +26,7 @@ namespace MeepleOS.DataLayer.Migrations
                     b.Property<int>("EstimatedMinutes")
                         .HasColumnType("INTEGER");
 
-                    b.Property<int>("MaxPlayers")
+                    b.Property<int?>("MaxPlayers")
                         .HasColumnType("INTEGER");
 
                     b.Property<int>("MinPlayers")

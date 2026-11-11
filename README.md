@@ -19,7 +19,7 @@ dotnet build MeepleOS.slnx
 dotnet run --no-build --project src/MeepleOS.ServerLayer
 ```
 
-Start vanuit de projectmap. De server wacht op MCP-berichten via stdin; hij biedt geen interactieve prompt. EF Core maakt de database bij de eerste start aan en voert bij volgende starts openstaande migraties uit. De uitbreidingsmigratie voegt tabellen toe aan de bestaande SQLite-database; bordspellen, spelers en potjes blijven behouden. Standaard staat de database in `data/meepleos.db`; met `MEEPLEOS_DB_PATH` kies je een ander pad. De `data`-map en SQLite-bestanden staan in `.gitignore`.
+Start vanuit de projectmap. De server wacht op MCP-berichten via stdin; hij biedt geen interactieve prompt. EF Core maakt de database bij de eerste start aan en voert bij volgende starts openstaande migraties uit. De migraties behouden bestaande bordspellen, uitbreidingen, spelers en potjes. Standaard staat de database in `data/meepleos.db`; met `MEEPLEOS_DB_PATH` kies je een ander pad. De `data`-map en SQLite-bestanden staan in `.gitignore`.
 
 Voor een lokale test:
 
@@ -61,7 +61,9 @@ Voorbeeld via Codex: vraag eerst "Welke uitbreidingen zijn er voor El Dorado?" e
 
 ## Wijzigen en verwijderen
 
-`update_boardgame` verwacht `id` en alleen de velden die moeten wijzigen: `name`, `minPlayers`, `maxPlayers` en/of `estimatedMinutes`. `update_player` verwacht `id` en `name`. De speler houdt hetzelfde ID en blijft daardoor zichtbaar in bestaande potjes.
+`add_boardgame` verwacht `name`, `minPlayers`, `maxPlayers` en `estimatedMinutes`. `minPlayers` is minimaal 1. Geef voor `maxPlayers` een getal van minstens `minPlayers` op, of expliciet `null` als het spel geen vast spelersmaximum heeft. Een onbekend maximum is geen reden om `null` te gebruiken. `get_boardgames` geeft het maximum eveneens als getal of `null` terug.
+
+`update_boardgame` verwacht `id` en een `changes`-object met `name`, `minPlayers`, `maxPlayers` en/of `estimatedMinutes`. Een weggelaten veld blijft gelijk; `maxPlayers: null` verwijdert een bestaand maximum. Bijvoorbeeld: `changes: { "maxPlayers": null }`. `update_player` verwacht `id` en `name`. De speler houdt hetzelfde ID en blijft daardoor zichtbaar in bestaande potjes.
 
 `update_game_session` verwacht `id` en een object `changes`. Ondersteunde velden daarin zijn `boardGameId`, `playedAt`, `notes`, `players`, `winnerPlayerIds` en `playerChanges`. Weggelaten velden blijven gelijk. `notes: null` wist opmerkingen. `players` vervangt de volledige deelnemerslijst; geef dan zo nodig ook nieuwe `winnerPlayerIds` op. `playerChanges` wijzigt `score` en/of `position` van bestaande deelnemers op basis van `playerId`; een weggelaten waarde blijft gelijk en `null` wist de waarde. Gebruik `players` en `playerChanges` niet tegelijk. Een potje moet minstens één bestaande deelnemer en één deelnemende winnaar hebben. De wijziging wordt in één databasetransactie opgeslagen.
 
@@ -71,7 +73,7 @@ De drie `delete_`-tools verwachten `id` en zijn met de MCP SDK als destructief g
 
 Voorbeelden van opdrachten aan Codex:
 
-- “Wijzig bordspel 3 met `update_boardgame`: zet `estimatedMinutes` op 60.”
+- “Wijzig bordspel 3 met `update_boardgame`: zet `changes.estimatedMinutes` op 60.”
 - “Hernoem speler 2 naar ‘Alexandra’ met `update_player`.”
 - “Gebruik `update_game_session` voor potje 5 met `changes: { "notes": null, "playerChanges": [{ "playerId": 2, "score": null }] }`.”
 - “Gebruik `update_game_session` voor potje 5 met `changes: { "players": [{ "playerId": 2 }, { "playerId": 4 }], "winnerPlayerIds": [4] }`.”

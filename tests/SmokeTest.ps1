@@ -62,8 +62,18 @@ try {
 
     $game = Invoke-Mcp 3 'tools/call' @{ name = 'add_boardgame'; arguments = @{ name = ' Azul '; minPlayers = 2; maxPlayers = 4; estimatedMinutes = 45 } }
     if ($game.isError) { throw 'add_boardgame mislukt' }
+    $unlimited = Get-ToolData (Invoke-Mcp 83 'tools/call' @{ name = 'add_boardgame'; arguments = @{
+        name = 'Open spel'; minPlayers = 1; maxPlayers = $null; estimatedMinutes = 30
+    } })
+    if ($null -ne $unlimited.maxPlayers) { throw 'Bordspel zonder maximum kreeg een vaste grens' }
+    $unknownMaximum = Invoke-Mcp 84 'tools/call' @{ name = 'add_boardgame'; arguments = @{
+        name = 'Onbekend maximum'; minPlayers = 1; estimatedMinutes = 30
+    } }
+    if (-not $unknownMaximum.isError) { throw 'Ontbrekend maximum werd als onbeperkt aanvaard' }
     $games = Invoke-Mcp 4 'tools/call' @{ name = 'get_boardgames'; arguments = @{} }
     if ($games.isError -or ($games | ConvertTo-Json -Depth 10) -notmatch 'Azul') { throw 'get_boardgames gaf Azul niet terug' }
+    $openGame = @(Get-ToolData $games) | Where-Object { $_.id -eq $unlimited.id }
+    if (@($openGame).Count -ne 1 -or $null -ne $openGame.maxPlayers) { throw 'get_boardgames gaf null niet correct terug' }
 
     $player = Invoke-Mcp 5 'tools/call' @{ name = 'add_player'; arguments = @{ name = ' Alex ' } }
     if ($player.isError) { throw 'add_player mislukt' }
@@ -75,6 +85,10 @@ try {
 
     $invalid = Invoke-Mcp 8 'tools/call' @{ name = 'add_boardgame'; arguments = @{ name = 'Fout'; minPlayers = 4; maxPlayers = 2; estimatedMinutes = 30 } }
     if (-not $invalid.isError) { throw 'Ongeldig spelersaantal werd geaccepteerd' }
+    $invalidMinimum = Invoke-Mcp 85 'tools/call' @{ name = 'add_boardgame'; arguments = @{
+        name = 'Fout minimum'; minPlayers = 0; maxPlayers = $null; estimatedMinutes = 30
+    } }
+    if (-not $invalidMinimum.isError) { throw 'Minimum nul werd geaccepteerd' }
 
     $azul = Get-ToolData $game
     $alex = Get-ToolData $player
@@ -192,16 +206,28 @@ try {
     if (-not $badStatisticsPeriod.isError) { throw 'Conflicterende periode werd geaccepteerd' }
 
     $updatedGame = Get-ToolData (Invoke-Mcp 36 'tools/call' @{ name = 'update_boardgame'; arguments = @{
-        id = $azul.id; name = 'Azul vernieuwd'; estimatedMinutes = 50
+        id = $azul.id; changes = @{ name = 'Azul vernieuwd'; estimatedMinutes = 50 }
     } })
     if ($updatedGame.name -ne 'Azul vernieuwd' -or $updatedGame.minPlayers -ne 2 -or $updatedGame.maxPlayers -ne 4 -or
         $updatedGame.estimatedMinutes -ne 50) { throw 'Bordspel gedeeltelijk wijzigen mislukt' }
-    $badGameUpdate = Invoke-Mcp 37 'tools/call' @{ name = 'update_boardgame'; arguments = @{ id = $azul.id; minPlayers = 5 } }
+    $badGameUpdate = Invoke-Mcp 37 'tools/call' @{ name = 'update_boardgame'; arguments = @{ id = $azul.id; changes = @{ minPlayers = 5 } } }
     if (-not $badGameUpdate.isError) { throw 'Ongeldig spelersaantal bij wijzigen geaccepteerd' }
-    $emptyGameName = Invoke-Mcp 56 'tools/call' @{ name = 'update_boardgame'; arguments = @{ id = $azul.id; name = ' ' } }
+    $emptyGameName = Invoke-Mcp 56 'tools/call' @{ name = 'update_boardgame'; arguments = @{ id = $azul.id; changes = @{ name = ' ' } } }
     if (-not $emptyGameName.isError) { throw 'Lege bordspelnaam bij wijzigen geaccepteerd' }
-    $missingGame = Invoke-Mcp 57 'tools/call' @{ name = 'update_boardgame'; arguments = @{ id = 999999; name = 'Onbekend' } }
+    $missingGame = Invoke-Mcp 57 'tools/call' @{ name = 'update_boardgame'; arguments = @{ id = 999999; changes = @{ name = 'Onbekend' } } }
     if (-not $missingGame.isError) { throw 'Niet-bestaand bordspel wijzigen gaf geen fout' }
+    $clearedMaximum = Get-ToolData (Invoke-Mcp 86 'tools/call' @{ name = 'update_boardgame'; arguments = @{
+        id = $azul.id; changes = @{ maxPlayers = $null }
+    } })
+    if ($null -ne $clearedMaximum.maxPlayers -or $clearedMaximum.name -ne 'Azul vernieuwd' -or
+        $clearedMaximum.minPlayers -ne 2 -or $clearedMaximum.estimatedMinutes -ne 50) {
+        throw 'Maximum wissen wijzigde andere bordspelgegevens'
+    }
+    $fixedMaximum = Get-ToolData (Invoke-Mcp 87 'tools/call' @{ name = 'update_boardgame'; arguments = @{
+        id = $unlimited.id; changes = @{ maxPlayers = 6 }
+    } })
+    if ($fixedMaximum.maxPlayers -ne 6 -or $fixedMaximum.minPlayers -ne 1 -or
+        $fixedMaximum.estimatedMinutes -ne 30) { throw 'Onbeperkt maximum naar vaste waarde wijzigen mislukt' }
 
     $updatedPlayer = Get-ToolData (Invoke-Mcp 38 'tools/call' @{ name = 'update_player'; arguments = @{ id = $alex.id; name = 'Alexandra' } })
     if ($updatedPlayer.name -ne 'Alexandra' -or $updatedPlayer.id -ne $alex.id) { throw 'Speler wijzigen mislukt' }

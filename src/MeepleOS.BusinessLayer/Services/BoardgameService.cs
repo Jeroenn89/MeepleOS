@@ -1,19 +1,20 @@
+using System.Text.Json;
 using MeepleOS.BusinessLayer.Repositories;
 
 namespace MeepleOS.BusinessLayer.Services;
 
-public sealed record BoardgameResult(int Id, string Name, int MinPlayers, int MaxPlayers, int EstimatedMinutes);
+public sealed record BoardgameResult(int Id, string Name, int MinPlayers, int? MaxPlayers, int EstimatedMinutes);
 
 public sealed class BoardgameService(IBoardgameRepository boardgames)
 {
-    public async Task<BoardgameResult> AddAsync(string name, int minPlayers, int maxPlayers, int estimatedMinutes)
+    public async Task<BoardgameResult> AddAsync(string name, int minPlayers, int? maxPlayers, int estimatedMinutes)
     {
         name = name?.Trim() ?? "";
 
         if (name.Length is < 1 or > 200)
             throw new ArgumentException("De naam moet 1 tot 200 tekens bevatten.", nameof(name));
 
-        if (minPlayers < 1 || maxPlayers < minPlayers)
+        if (minPlayers < 1 || (maxPlayers.HasValue && maxPlayers.Value < minPlayers))
             throw new ArgumentException("Het spelersaantal moet minimaal 1 zijn en het maximum mag niet onder het minimum liggen.");
 
         if (estimatedMinutes < 1)
@@ -24,8 +25,7 @@ public sealed class BoardgameService(IBoardgameRepository boardgames)
 
     public Task<List<BoardgameResult>> GetAllAsync() => boardgames.GetAllAsync();
 
-    public async Task<BoardgameResult> UpdateAsync(int id, string? name = null, int? minPlayers = null,
-        int? maxPlayers = null, int? estimatedMinutes = null)
+    public async Task<BoardgameResult> UpdateAsync(int id, JsonElement changes)
     {
         if (id < 1)
             throw new ArgumentException("Geef een geldig bordspel-ID op.", nameof(id));
@@ -33,22 +33,55 @@ public sealed class BoardgameService(IBoardgameRepository boardgames)
         var current = await boardgames.GetByIdAsync(id)
             ?? throw new ArgumentException("Het bordspel bestaat niet.", nameof(id));
 
-        var newName = name is null ? current.Name : name.Trim();
-        var newMin = minPlayers ?? current.MinPlayers;
-        var newMax = maxPlayers ?? current.MaxPlayers;
-        var newMinutes = estimatedMinutes ?? current.EstimatedMinutes;
+        if (changes.ValueKind != JsonValueKind.Object)
+            throw new ArgumentException("Geef wijzigingen als object op.", nameof(changes));
+
+        var newName = current.Name;
+        var newMin = current.MinPlayers;
+        var newMax = current.MaxPlayers;
+        var newMinutes = current.EstimatedMinutes;
+        foreach (var property in changes.EnumerateObject())
+        {
+            switch (property.Name)
+            {
+                case "name":
+                    if (property.Value.ValueKind != JsonValueKind.String)
+                        throw new ArgumentException("De naam moet tekst zijn.", nameof(changes));
+                    newName = property.Value.GetString()!.Trim();
+                    break;
+                case "minPlayers":
+                    newMin = ReadInt(property.Value, "Het minimum", changes);
+                    break;
+                case "maxPlayers":
+                    newMax = property.Value.ValueKind == JsonValueKind.Null ? null
+                        : ReadInt(property.Value, "Het maximum", changes);
+                    break;
+                case "estimatedMinutes":
+                    newMinutes = ReadInt(property.Value, "De geschatte speelduur", changes);
+                    break;
+                default:
+                    throw new ArgumentException($"Onbekend wijzigingsveld: {property.Name}.", nameof(changes));
+            }
+        }
 
         if (newName.Length is < 1 or > 200)
-            throw new ArgumentException("De naam moet 1 tot 200 tekens bevatten.", nameof(name));
+            throw new ArgumentException("De naam moet 1 tot 200 tekens bevatten.", nameof(changes));
 
-        if (newMin < 1 || newMax < newMin)
+        if (newMin < 1 || (newMax.HasValue && newMax.Value < newMin))
             throw new ArgumentException("Het spelersaantal moet minimaal 1 zijn en het maximum mag niet onder het minimum liggen.");
 
         if (newMinutes < 1)
-            throw new ArgumentException("De geschatte speelduur moet minimaal 1 minuut zijn.", nameof(estimatedMinutes));
+            throw new ArgumentException("De geschatte speelduur moet minimaal 1 minuut zijn.", nameof(changes));
 
         return await boardgames.UpdateAsync(id, newName, newMin, newMax, newMinutes)
             ?? throw new ArgumentException("Het bordspel bestaat niet meer.", nameof(id));
+    }
+
+    private static int ReadInt(JsonElement value, string label, JsonElement changes)
+    {
+        if (value.ValueKind != JsonValueKind.Number || !value.TryGetInt32(out var result))
+            throw new ArgumentException($"{label} moet een geheel getal zijn.", nameof(changes));
+        return result;
     }
 
     public async Task<bool> DeleteAsync(int id)
