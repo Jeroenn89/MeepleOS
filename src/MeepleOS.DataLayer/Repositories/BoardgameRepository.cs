@@ -18,15 +18,19 @@ public sealed class BoardgameRepository(IDbContextFactory<MeepleDbContext> dbFac
             MaxPlayers = maxPlayers,
             EstimatedMinutes = estimatedMinutes
         };
+
         db.Boardgames.Add(game);
         await db.SaveChangesAsync();
+
         return new(game.Id, game.Name, game.MinPlayers, game.MaxPlayers, game.EstimatedMinutes);
     }
 
     public async Task<List<BoardgameResult>> GetAllAsync()
     {
         await using var db = await dbFactory.CreateDbContextAsync();
-        return await db.Boardgames.AsNoTracking().OrderBy(x => x.Name)
+        return await db.Boardgames
+            .AsNoTracking()
+            .OrderBy(x => x.Name)
             .Select(x => new BoardgameResult(x.Id, x.Name, x.MinPlayers, x.MaxPlayers, x.EstimatedMinutes))
             .ToListAsync();
     }
@@ -34,7 +38,9 @@ public sealed class BoardgameRepository(IDbContextFactory<MeepleDbContext> dbFac
     public async Task<BoardgameResult?> GetByIdAsync(int id)
     {
         await using var db = await dbFactory.CreateDbContextAsync();
-        return await db.Boardgames.AsNoTracking().Where(x => x.Id == id)
+        return await db.Boardgames
+            .AsNoTracking()
+            .Where(x => x.Id == id)
             .Select(x => new BoardgameResult(x.Id, x.Name, x.MinPlayers, x.MaxPlayers, x.EstimatedMinutes))
             .SingleOrDefaultAsync();
     }
@@ -43,12 +49,15 @@ public sealed class BoardgameRepository(IDbContextFactory<MeepleDbContext> dbFac
     {
         await using var db = await dbFactory.CreateDbContextAsync();
         var game = await db.Boardgames.FindAsync(id);
-        if (game is null) return null;
+        if (game is null)
+            return null;
+
         game.Name = name;
         game.MinPlayers = minPlayers;
         game.MaxPlayers = maxPlayers;
         game.EstimatedMinutes = estimatedMinutes;
         await db.SaveChangesAsync();
+
         return new(game.Id, game.Name, game.MinPlayers, game.MaxPlayers, game.EstimatedMinutes);
     }
 
@@ -62,15 +71,23 @@ public sealed class BoardgameRepository(IDbContextFactory<MeepleDbContext> dbFac
     {
         await using var db = await dbFactory.CreateDbContextAsync();
         var game = await db.Boardgames.FindAsync(id);
-        if (game is null) return false;
+        if (game is null)
+            return false;
+
         if (await db.GameSessions.AnyAsync(x => x.BoardGameId == id))
             throw new InvalidOperationException("Dit bordspel kan niet worden verwijderd: er zijn gespeelde potjes aan gekoppeld.");
+
         db.Boardgames.Remove(game);
-        try { await db.SaveChangesAsync(); }
+
+        try
+        {
+            await db.SaveChangesAsync();
+        }
         catch (DbUpdateException ex)
         {
             throw new InvalidOperationException("Dit bordspel kan niet worden verwijderd: er zijn gespeelde potjes aan gekoppeld.", ex);
         }
+
         return true;
     }
 }
