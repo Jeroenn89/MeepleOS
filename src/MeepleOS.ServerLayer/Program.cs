@@ -32,11 +32,15 @@ builder.Services.AddSingleton<PlayerService>();
 builder.Services.AddSingleton<IGameSessionRepository, GameSessionRepository>();
 builder.Services.AddSingleton<GameSessionService>();
 
+// Statistieken worden op aanvraag uit geregistreerde potjes berekend.
+builder.Services.AddSingleton<StatisticsService>();
+
 // MCP-commando's per categorie.
 var mcp = builder.Services.AddMcpServer().WithStdioServerTransport();
 mcp.WithTools<BoardgameTools>(); // add_boardgame, get_boardgames
 mcp.WithTools<PlayerTools>();    // add_player, get_players
 mcp.WithTools<GameSessionTools>(); // record_game_session, get_game_sessions
+mcp.WithTools<StatisticsTools>(); // vier statistiektools
 
 // Start: maak de database aan of voer openstaande schema-upgrades uit.
 using var host = builder.Build();

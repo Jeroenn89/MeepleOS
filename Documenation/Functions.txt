@@ -1,0 +1,19 @@
+MeepleOS functies
+
+Bordspel functies
+- Bordspel toevoegen:             Naam, minimum- en maximumaantal spelers en geschatte speelduur vastleggen.
+- Bordspellen bekijken:           Alle opgeslagen bordspellen opvragen.
+
+Speler functies
+- Speler toevoegen:               Een speler op naam registreren. Een bestaande naam geeft de bestaande speler terug.
+- Spelers bekijken:               Alle geregistreerde spelers opvragen.
+
+Spel functies
+- Potje registreren:              Een bordspel, speeldatum, deelnemers en één of meer winnaars vastleggen; scores, eindposities en opmerkingen zijn optioneel.
+- Gespeelde potjes bekijken:      De speelgeschiedenis opvragen, eventueel gefilterd op bordspel, speler of datumperiode.
+
+Statistiek functies
+- Spelerstatistieken bekijken:    Aantal potjes, overwinningen en winstpercentage per speler opvragen.
+- Bordspelstatistieken bekijken:  Aantal potjes, unieke spelers en vaakste winnaars per bordspel opvragen.
+- Ranglijst bekijken:             Spelers rangschikken op overwinningen of winstpercentage.
+- Speelstatistieken bekijken:     Aantal potjes per week, maand of jaar en meest gespeelde bordspellen opvragen.
