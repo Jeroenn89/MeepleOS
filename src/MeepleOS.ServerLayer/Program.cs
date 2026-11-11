@@ -1,6 +1,6 @@
 using MeepleOS.BusinessLayer.Repositories;
 using MeepleOS.BusinessLayer.Services;
-using MeepleOS.DataLayer.Data;
+using MeepleOS.DataLayer.Data.Context;
 using MeepleOS.DataLayer.Repositories;
 using MeepleOS.ServerLayer.Tools;
 using Microsoft.EntityFrameworkCore;
@@ -28,13 +28,18 @@ builder.Services.AddSingleton<BoardgameService>();
 builder.Services.AddSingleton<IPlayerRepository, PlayerRepository>();
 builder.Services.AddSingleton<PlayerService>();
 
+// Gespeelde potjes: opslag en businesslogica.
+builder.Services.AddSingleton<IGameSessionRepository, GameSessionRepository>();
+builder.Services.AddSingleton<GameSessionService>();
+
 // MCP-commando's per categorie.
 var mcp = builder.Services.AddMcpServer().WithStdioServerTransport();
 mcp.WithTools<BoardgameTools>(); // add_boardgame, get_boardgames
 mcp.WithTools<PlayerTools>();    // add_player, get_players
+mcp.WithTools<GameSessionTools>(); // record_game_session, get_game_sessions
 
-// Start: maak de database aan als die nog niet bestaat en start daarna de server.
+// Start: maak de database aan of voer openstaande schema-upgrades uit.
 using var host = builder.Build();
 await using (var db = await host.Services.GetRequiredService<IDbContextFactory<MeepleDbContext>>().CreateDbContextAsync())
-    await db.Database.EnsureCreatedAsync();
+    await db.Database.MigrateAsync();
 await host.RunAsync();

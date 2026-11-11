@@ -1,6 +1,7 @@
 using MeepleOS.BusinessLayer.Repositories;
 using MeepleOS.BusinessLayer.Services;
-using MeepleOS.DataLayer.Data;
+using MeepleOS.DataLayer.Data.Context;
+using MeepleOS.DataLayer.Data.Models;
 using Microsoft.EntityFrameworkCore;
 
 namespace MeepleOS.DataLayer.Repositories;

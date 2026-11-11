@@ -23,12 +23,18 @@ function Invoke-Mcp($id, $method, $parameters) {
     return $response.result
 }
 
+function Get-ToolData($result) {
+    if ($result.isError) { throw "Tool gaf een fout: $($result | ConvertTo-Json -Depth 10)" }
+    if ($result.structuredContent) { return $result.structuredContent }
+    return ($result.content | Where-Object { $_.type -eq 'text' } | Select-Object -First 1).text | ConvertFrom-Json
+}
+
 try {
     $null = Invoke-Mcp 1 'initialize' @{ protocolVersion = '2025-06-18'; capabilities = @{}; clientInfo = @{ name = 'meepleos-smoke'; version = '1.0' } }
     $process.StandardInput.WriteLine('{"jsonrpc":"2.0","method":"notifications/initialized"}')
     $tools = Invoke-Mcp 2 'tools/list' @{}
     $names = @($tools.tools | ForEach-Object { $_.name })
-    foreach ($name in @('add_boardgame', 'get_boardgames', 'add_player', 'get_players')) {
+    foreach ($name in @('add_boardgame', 'get_boardgames', 'add_player', 'get_players', 'record_game_session', 'get_game_sessions')) {
         if ($name -notin $names) { throw "Ontbrekende tool: $name" }
     }
 
@@ -47,7 +53,66 @@ try {
 
     $invalid = Invoke-Mcp 8 'tools/call' @{ name = 'add_boardgame'; arguments = @{ name = 'Fout'; minPlayers = 4; maxPlayers = 2; estimatedMinutes = 30 } }
     if (-not $invalid.isError) { throw 'Ongeldig spelersaantal werd geaccepteerd' }
-    Write-Output 'MCP-smoketest geslaagd: vier tools, opslag, dubbele speler en validatie.'
+
+    $azul = Get-ToolData $game
+    $alex = Get-ToolData $player
+    $sam = Get-ToolData (Invoke-Mcp 9 'tools/call' @{ name = 'add_player'; arguments = @{ name = 'Sam' } })
+    $pat = Get-ToolData (Invoke-Mcp 10 'tools/call' @{ name = 'add_player'; arguments = @{ name = 'Pat' } })
+    $carcassonne = Get-ToolData (Invoke-Mcp 11 'tools/call' @{ name = 'add_boardgame'; arguments = @{ name = 'Carcassonne'; minPlayers = 2; maxPlayers = 5; estimatedMinutes = 45 } })
+    $eldorado = Get-ToolData (Invoke-Mcp 12 'tools/call' @{ name = 'add_boardgame'; arguments = @{ name = 'El Dorado'; minPlayers = 2; maxPlayers = 4; estimatedMinutes = 60 } })
+
+    $scored = Get-ToolData (Invoke-Mcp 13 'tools/call' @{ name = 'record_game_session'; arguments = @{
+        boardGameId = $carcassonne.id; playedAt = '2026-11-10'; notes = 'Gedeelde overwinning'
+        players = @(@{ playerId = $alex.id; score = 85; position = 1 }, @{ playerId = $sam.id; score = 85; position = 1 })
+        winnerPlayerIds = @($alex.id, $sam.id)
+    } })
+    if ($scored.players.Count -ne 2 -or @($scored.players | Where-Object { $_.isWinner -and $_.score -eq 85 }).Count -ne 2) {
+        throw 'Scores of gedeelde overwinning zijn niet opgeslagen'
+    }
+
+    $unscored = Get-ToolData (Invoke-Mcp 14 'tools/call' @{ name = 'record_game_session'; arguments = @{
+        boardGameId = $eldorado.id; playedAt = '2026-11-11'
+        players = @(@{ playerId = $pat.id }, @{ playerId = $alex.id })
+        winnerPlayerIds = @($pat.id)
+    } })
+    if (@($unscored.players | Where-Object { $null -ne $_.score -or $null -ne $_.position }).Count -ne 0 -or
+        @($unscored.players | Where-Object { $_.isWinner }).Count -ne 1) {
+        throw 'Potje zonder scores of winnaar is niet goed opgeslagen'
+    }
+
+    $history = Get-ToolData (Invoke-Mcp 15 'tools/call' @{ name = 'get_game_sessions'; arguments = @{} })
+    if (@($history).Count -ne 2) { throw 'Speelgeschiedenis bevat niet beide potjes' }
+    $filtered = Get-ToolData (Invoke-Mcp 16 'tools/call' @{ name = 'get_game_sessions'; arguments = @{
+        boardGameId = $carcassonne.id; playerId = $alex.id; from = '2026-11-10'; to = '2026-11-10'
+    } })
+    if (@($filtered).Count -ne 1 -or $filtered[0].id -ne $scored.id) { throw 'Filters voor bordspel, speler of datum werken niet' }
+    $byPlayer = Get-ToolData (Invoke-Mcp 20 'tools/call' @{ name = 'get_game_sessions'; arguments = @{ playerId = $pat.id } })
+    if (@($byPlayer).Count -ne 1 -or $byPlayer[0].id -ne $unscored.id) { throw 'Spelerfilter werkt niet' }
+    $byDate = Get-ToolData (Invoke-Mcp 21 'tools/call' @{ name = 'get_game_sessions'; arguments = @{ from = '2026-11-11'; to = '2026-11-11' } })
+    if (@($byDate).Count -ne 1 -or $byDate[0].id -ne $unscored.id) { throw 'Datumfilter werkt niet' }
+    $byBoardgame = Get-ToolData (Invoke-Mcp 22 'tools/call' @{ name = 'get_game_sessions'; arguments = @{ boardGameId = $eldorado.id } })
+    if (@($byBoardgame).Count -ne 1 -or $byBoardgame[0].id -ne $unscored.id) { throw 'Bordspelfilter werkt niet' }
+
+    $badWinner = Invoke-Mcp 17 'tools/call' @{ name = 'record_game_session'; arguments = @{
+        boardGameId = $azul.id; playedAt = '2026-11-11'; players = @(@{ playerId = $alex.id }); winnerPlayerIds = @($pat.id)
+    } }
+    if (-not $badWinner.isError) { throw 'Winnaar buiten de deelnemers werd geaccepteerd' }
+    $duplicatePlayer = Invoke-Mcp 18 'tools/call' @{ name = 'record_game_session'; arguments = @{
+        boardGameId = $azul.id; playedAt = '2026-11-11'; players = @(@{ playerId = $alex.id }, @{ playerId = $alex.id }); winnerPlayerIds = @($alex.id)
+    } }
+    if (-not $duplicatePlayer.isError) { throw 'Dubbele deelnemer werd geaccepteerd' }
+    $unknownPlayer = Invoke-Mcp 19 'tools/call' @{ name = 'record_game_session'; arguments = @{
+        boardGameId = $azul.id; playedAt = '2026-11-11'; players = @(@{ playerId = 999999 }); winnerPlayerIds = @(999999)
+    } }
+    if (-not $unknownPlayer.isError) { throw 'Onbekende deelnemer werd geaccepteerd' }
+    $unknownBoardgame = Invoke-Mcp 23 'tools/call' @{ name = 'record_game_session'; arguments = @{
+        boardGameId = 999999; playedAt = '2026-11-11'; players = @(@{ playerId = $alex.id }); winnerPlayerIds = @($alex.id)
+    } }
+    if (-not $unknownBoardgame.isError) { throw 'Onbekend bordspel werd geaccepteerd' }
+    $badPeriod = Invoke-Mcp 24 'tools/call' @{ name = 'get_game_sessions'; arguments = @{ from = '2026-11-11'; to = '2026-11-10' } }
+    if (-not $badPeriod.isError) { throw 'Omgekeerde datumperiode werd geaccepteerd' }
+
+    Write-Output 'MCP-smoketest geslaagd: zes tools, potjes met en zonder scores, gedeelde winst, filters en validatie.'
 }
 finally {
     $process.StandardInput.Close()

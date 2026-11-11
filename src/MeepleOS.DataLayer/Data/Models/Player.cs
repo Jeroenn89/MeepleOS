@@ -1,4 +1,4 @@
-namespace MeepleOS.DataLayer.Data;
+namespace MeepleOS.DataLayer.Data.Models;
 
 public sealed class Player
 {
