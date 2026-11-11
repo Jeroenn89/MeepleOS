@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="src/MeepleOS.BusinessLayer/MeepleOS.BusinessLayer.csproj" />
+  <Project Path="src/MeepleOS.DataLayer/MeepleOS.DataLayer.csproj" />
+  <Project Path="src/MeepleOS.ServerLayer/MeepleOS.ServerLayer.csproj" />
+</Solution>
