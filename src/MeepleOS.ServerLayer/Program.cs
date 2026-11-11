@@ -3,6 +3,7 @@ using MeepleOS.BusinessLayer.Services;
 using MeepleOS.DataLayer.Data.Context;
 using MeepleOS.DataLayer.Repositories;
 using MeepleOS.ServerLayer.Tools;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -17,8 +18,11 @@ builder.Logging.AddConsole(options => options.LogToStandardErrorThreshold = LogL
 // Database: bepaal het pad en registreer de SQLite-context.
 var databasePath = Environment.GetEnvironmentVariable("MEEPLEOS_DB_PATH")
     ?? Path.Combine(Environment.CurrentDirectory, "data", "meepleos.db");
-Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(databasePath))!);
-builder.Services.AddDbContextFactory<MeepleDbContext>(options => options.UseSqlite($"Data Source={databasePath}"));
+var readOnly = Environment.GetEnvironmentVariable("MEEPLEOS_READ_ONLY") == "1";
+databasePath = Path.GetFullPath(databasePath);
+if (!readOnly) Directory.CreateDirectory(Path.GetDirectoryName(databasePath)!);
+var connection = new SqliteConnectionStringBuilder { DataSource = databasePath, Mode = readOnly ? SqliteOpenMode.ReadOnly : SqliteOpenMode.ReadWriteCreate };
+builder.Services.AddDbContextFactory<MeepleDbContext>(options => options.UseSqlite(connection.ToString()));
 
 // Bordspellen: opslag en businesslogica.
 builder.Services.AddSingleton<IBoardgameRepository, BoardgameRepository>();
@@ -48,6 +52,9 @@ mcp.WithTools<StatisticsTools>(); // vier statistiektools
 
 // Start: maak de database aan of voer openstaande schema-upgrades uit.
 using var host = builder.Build();
-await using (var db = await host.Services.GetRequiredService<IDbContextFactory<MeepleDbContext>>().CreateDbContextAsync())
+if (!readOnly)
+{
+    await using var db = await host.Services.GetRequiredService<IDbContextFactory<MeepleDbContext>>().CreateDbContextAsync();
     await db.Database.MigrateAsync();
+}
 await host.RunAsync();

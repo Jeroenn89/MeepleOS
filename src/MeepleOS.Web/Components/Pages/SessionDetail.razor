@@ -1,0 +1,36 @@
+@page "/sessions/{Id:int}"
+@inject GameSessionService Sessions
+<PageTitle>Potje · MeepleOS</PageTitle>
+@if (session is null)
+{
+    <h1>Potje niet gevonden</h1>
+}
+else
+{
+    <p>
+        <a href="/sessions">← Potjes</a>
+    </p>
+    <h1>@session.BoardGameName</h1>
+    <p class="intro">@session.PlayedAt.ToString("dd-MM-yyyy")</p>
+    <section class="card">
+        <h2>Deelnemers</h2>
+        @foreach (var p in session.Players)
+        {
+            <p>
+                <a href="/players/@p.PlayerId">@p.PlayerName</a>
+                @(p.IsWinner ? "🏆 winnaar" : "")
+                @(p.Score.HasValue ? $"· score {p.Score}" : "")
+                @(p.Position.HasValue ? $"· positie {p.Position}" : "")
+            </p>
+        }
+    </section>
+    <section class="card">
+        <h2>Uitbreidingen</h2>
+        <p>@(session.Expansions.Count == 0 ? "Geen" : string.Join(", ", session.Expansions.Select(x => x.Name)))</p>
+    </section>
+    <section class="card">
+        <h2>Opmerkingen</h2>
+        <p>@(session.Notes ?? "Geen opmerkingen")</p>
+    </section>
+    <a class="button secondary" href="/manage">Wijzigen of verwijderen</a>
+}

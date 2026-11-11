@@ -1,0 +1,69 @@
+@page "/"
+@inject BoardgameService Games
+@inject PlayerService Players
+@inject GameSessionService Sessions
+<PageTitle>Dashboard · MeepleOS</PageTitle>
+<h1>Dashboard</h1>
+<p class="intro">Je bordspelavonden in één overzicht.</p>
+@if (history is null)
+{
+    <p>Laden…</p>
+}
+else
+{
+    <div class="metrics">
+        <div>
+            <strong>@history.Count</strong>
+            <span>potjes</span>
+        </div>
+        <div>
+            <strong>@playerCount</strong>
+            <span>spelers</span>
+        </div>
+        <div>
+            <strong>@gameCount</strong>
+            <span>bordspellen</span>
+        </div>
+        <div>
+            <strong>@wins</strong>
+            <span>overwinningen</span>
+        </div>
+    </div>
+    <div class="grid">
+        <section class="card">
+            <h2>Potjes per maand</h2>
+            <BarChart Items="timeBars" />
+        </section>
+        <section class="card">
+            <h2>Meest gespeeld</h2>
+            <BarChart Items="gameBars" />
+        </section>
+        <section class="card">
+            <h2>Overwinningen per speler</h2>
+            <BarChart Items="winBars" />
+        </section>
+        <section class="card">
+            <h2>Recente potjes</h2>
+            @if (history.Count == 0)
+            {
+                <p>Nog geen potjes.</p>
+            }
+            else
+            {
+                @foreach (var session in history.Take(6))
+                {
+                    <p>
+                        <a href="/sessions/@session.Id">@session.BoardGameName</a>
+                        · @session.PlayedAt.ToString("dd-MM-yyyy")<br>
+                        <small>@string.Join(", ", session.Players.Select(player => player.PlayerName))</small>
+                    </p>
+                }
+            }
+            }
+        </section>
+    </div>
+    <div class="actions">
+        <a class="button" href="/manage">Potje invoeren</a>
+        <a class="button secondary" href="/chat">Vraag de AI</a>
+    </div>
+}

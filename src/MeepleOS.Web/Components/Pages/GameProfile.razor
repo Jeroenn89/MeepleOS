@@ -1,0 +1,74 @@
+@page "/games/{Id:int}"
+@inject BoardgameService Games
+@inject GameExpansionService Expansions
+@inject GameSessionService Sessions
+@inject StatisticsService Stats
+<PageTitle>Bordspelprofiel · MeepleOS</PageTitle>
+@if (game is null)
+{
+    <h1>Bordspel niet gevonden</h1>
+}
+else
+{
+    <p>
+        <a href="/games">← Bordspellen</a>
+    </p>
+    <h1>@game.Name</h1>
+    <p>@game.MinPlayers–@(game.MaxPlayers?.ToString() ?? "∞") spelers · circa @game.EstimatedMinutes minuten</p>
+    <div class="metrics">
+        <div>
+            <strong>@history.Count</strong>
+            <span>potjes</span>
+        </div>
+        <div>
+            <strong>@(history.FirstOrDefault()?.PlayedAt.ToString("dd-MM-yyyy") ?? "—")</strong>
+            <span>laatst gespeeld</span>
+        </div>
+    </div>
+    <div class="grid">
+        <section class="card">
+            <h2>Speeltrend</h2>
+            <BarChart Items="trend" />
+        </section>
+        <section class="card">
+            <h2>Vaak deelnemende spelers</h2>
+            <BarChart Items="participants" />
+        </section>
+        <section class="card">
+            <h2>Overwinningen</h2>
+            <BarChart Items="winners" />
+            @foreach (var p in percentages)
+            {
+                <p>
+                    <a href="/players/@p.PlayerId">@p.PlayerName</a>:
+                    @p.Wins / @p.Plays (@p.WinPercentage.ToString("0.#")%)
+                </p>
+            }
+        </section>
+        <section class="card">
+            <h2>Uitbreidingen</h2>
+            @if (expansions.Count == 0)
+            {
+                <p>Geen geregistreerde uitbreidingen.</p>
+            }
+            else
+            {
+                @foreach (var e in expansions)
+                {
+                    <p>@e.Name · @history.Count(s => s.Expansions.Any(x => x.Id == e.Id)) keer gebruikt</p>
+                }
+            }
+            }
+        </section>
+        <section class="card">
+            <h2>Recente potjes</h2>
+            @foreach (var s in history.Take(8))
+            {
+                <p>
+                    <a href="/sessions/@s.Id">@s.PlayedAt.ToString("dd-MM-yyyy")</a>
+                    · @string.Join(", ", s.Players.Select(p => p.PlayerName))
+                </p>
+            }
+        </section>
+    </div>
+}

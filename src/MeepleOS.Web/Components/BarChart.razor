@@ -1,0 +1,20 @@
+@if (Items.Count == 0)
+{
+    <p class="empty">Nog geen gegevens voor deze grafiek.</p>
+}
+else
+{
+    <div class="bars" role="img" aria-label="Staafdiagram">
+        @foreach (var item in Items)
+        {
+            <div class="bar-row">
+                <span>@ReadableLabel(item.Label)</span>
+                <div class="bar-track">
+                    <div class="bar-fill" style="width:@(100.0 * item.Value / Items.Max(x => x.Value))%">
+                    </div>
+                </div>
+                <b>@item.Value</b>
+            </div>
+        }
+    </div>
+}

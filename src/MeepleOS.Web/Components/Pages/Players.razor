@@ -1,0 +1,26 @@
+@page "/players"
+@inject PlayerService PlayerService
+@inject StatisticsService Stats
+<PageTitle>Spelers · MeepleOS</PageTitle>
+<h1>Spelers</h1>
+<label>
+    Zoeken
+    <input @bind="search" @bind:event="oninput" placeholder="Spelersnaam" />
+</label>
+@if (players is null)
+{
+    <p>Laden…</p>
+}
+else
+{
+    <div class="grid">
+        @foreach (var player in players.Where(MatchesSearch))
+        {
+            var statistics = stats!.First(stat => stat.PlayerId == player.Id);
+            <article class="card">
+                <h2><a href="/players/@player.Id">@player.Name</a></h2>
+                <p>@statistics.Plays potjes · @statistics.Wins overwinningen · @statistics.WinPercentage.ToString("0.#")%</p>
+            </article>
+        }
+    </div>
+}

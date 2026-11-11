@@ -1,0 +1,58 @@
+@page "/players/{Id:int}"
+@inject PlayerService Players
+@inject GameSessionService Sessions
+@inject StatisticsService Stats
+<PageTitle>Spelerprofiel · MeepleOS</PageTitle>
+@if (player is null)
+{
+    <h1>Speler niet gevonden</h1>
+}
+else
+{
+    <p>
+        <a href="/players">← Spelers</a>
+    </p>
+    <h1>@player.Name</h1>
+    <div class="metrics">
+        <div>
+            <strong>@history.Count</strong>
+            <span>potjes</span>
+        </div>
+        <div>
+            <strong>@wins</strong>
+            <span>overwinningen</span>
+        </div>
+        <div>
+            <strong>@percentage.ToString("0.#")%</strong>
+            <span>winstpercentage</span>
+        </div>
+    </div>
+    <div class="grid">
+        <section class="card">
+            <h2>Vaak gespeelde spellen</h2>
+            <BarChart Items="gameBars" />
+        </section>
+        <section class="card">
+            <h2>Recente potjes</h2>
+            @foreach (var s in history.Take(10))
+            {
+                <p>
+                    <a href="/sessions/@s.Id">@s.BoardGameName</a>
+                    · @s.PlayedAt.ToString("dd-MM-yyyy")
+                    @(s.Players.First(p => p.PlayerId == Id).IsWinner ? "🏆" : "")
+                </p>
+            }
+        </section>
+        <section class="card">
+            <h2>Beschikbare scores</h2>
+            @foreach (var s in history.Where(s => s.Players.Any(p => p.PlayerId == Id && p.Score.HasValue)).Take(12))
+            {
+                <p>@s.BoardGameName · @s.PlayedAt.ToString("dd-MM-yyyy"): @s.Players.First(p => p.PlayerId == Id).Score</p>
+            }
+            @if (!history.Any(s => s.Players.Any(p => p.PlayerId == Id && p.Score.HasValue)))
+            {
+                <p>Geen scores geregistreerd.</p>
+            }
+        </section>
+    </div>
+}

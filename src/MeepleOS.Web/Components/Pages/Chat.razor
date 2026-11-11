@@ -1,0 +1,30 @@
+@page "/chat"
+@inject ChatService ChatService
+<PageTitle>AI-chat · MeepleOS</PageTitle>
+<h1>AI-chat</h1>
+<p class="intro">Stel een vraag of registreer een potje in het Nederlands.</p>
+<div class="chat-window" aria-live="polite">
+    @foreach(var m in messages)
+    {
+        <p class="chat-message @(m.User?"user":"assistant")">
+            <b>@(m.User?"Jij":"MeepleOS")</b>
+            <br>@m.Text</p>
+    }
+</div>
+@if(pending is not null)
+{
+    <div class="card confirm">
+        <p>Bevestig deze ingrijpende opdracht voordat ik hem uitvoer:</p>
+        <blockquote>@pending</blockquote>
+        <button class="danger" disabled="@busy" @onclick="Confirm">Bevestig en voer uit</button>
+        <button class="secondary" @onclick="Cancel">Annuleren</button>
+    </div>
+}
+<div class="chat-form">
+    <label for="prompt">
+        Je bericht
+    </label>
+    <textarea id="prompt" @bind="prompt" disabled="@busy">
+    </textarea>
+    <button disabled="@busy" @onclick="Send">@(busy?"Bezig…":"Verstuur")</button>
+</div>

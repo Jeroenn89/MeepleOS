@@ -1,0 +1,128 @@
+@page "/statistics"
+@inject StatisticsService Stats
+@inject BoardgameService Games
+@inject PlayerService Players
+<PageTitle>Statistieken · MeepleOS</PageTitle>
+<h1>Statistieken</h1>
+<div class="filters">
+    <label>
+        Periode
+        <select @bind="period">
+            <option value="all">Alles</option>
+            <option value="week">Week</option>
+            <option value="month">Maand</option>
+            <option value="year">Jaar</option>
+            <option value="custom">Eigen bereik</option>
+        </select>
+    </label>
+    @if (period is "week" or "month" or "year")
+    {
+        <label>
+            Jaar
+            <input type="number" @bind="year" />
+        </label>
+    }
+    @if (period == "week")
+    {
+        <label>
+            ISO-week
+            <input type="number" min="1" max="53" @bind="week" />
+        </label>
+    }
+    @if (period == "month")
+    {
+        <label>
+            Maand
+            <input type="number" min="1" max="12" @bind="month" />
+        </label>
+    }
+    @if (period == "custom")
+    {
+        <label>
+            Van
+            <input type="date" @bind="from" />
+        </label>
+        <label>
+            Tot
+            <input type="date" @bind="to" />
+        </label>
+    }
+    <label>
+        Speler
+        <select @bind="playerId">
+            <option value="0">Alle spelers</option>
+            @foreach (var p in players)
+            {
+                <option value="@p.Id">@p.Name</option>
+            }
+        </select>
+    </label>
+    <label>
+        Bordspel
+        <select @bind="gameId">
+            <option value="0">Alle spellen</option>
+            @foreach (var g in games)
+            {
+                <option value="@g.Id">@g.Name</option>
+            }
+        </select>
+    </label>
+    <label>
+        Groepering
+        <select @bind="groupBy">
+            <option value="week">Week</option>
+            <option value="month">Maand</option>
+            <option value="year">Jaar</option>
+        </select>
+    </label>
+    <button @onclick="Apply">Toepassen</button>
+</div>
+@if (error is not null)
+{
+    <p class="error">@error</p>
+}
+@if (filtered is not null)
+{
+    <div class="metrics">
+        <div>
+            <strong>@filtered.TotalPlays</strong>
+            <span>potjes</span>
+        </div>
+        <div>
+            <strong>@filtered.Wins</strong>
+            <span>overwinningen</span>
+        </div>
+    </div>
+    @if (filtered.TotalPlays == 0)
+    {
+        <p class="empty">Geen potjes voor deze filters.</p>
+    }
+    else
+    {
+        <div class="grid">
+            <section class="card">
+                <h2>Potjes door de tijd</h2>
+                <BarChart Items="timeBars" />
+            </section>
+            <section class="card">
+                <h2>Meest gespeelde spellen</h2>
+                <BarChart Items="gameBars" />
+            </section>
+            <section class="card">
+                <h2>Overwinningen per speler</h2>
+                <BarChart Items="winBars" />
+            </section>
+            <section class="card">
+                <h2>Ranglijst</h2>
+                @foreach (var p in filtered.Players)
+                {
+                    <p>
+                        <a href="/players/@p.PlayerId">@p.PlayerName</a>
+                        · @p.Wins winst / @p.Plays potjes
+                        · @p.WinPercentage.ToString("0.#")%
+                    </p>
+                }
+            </section>
+        </div>
+    }
+}

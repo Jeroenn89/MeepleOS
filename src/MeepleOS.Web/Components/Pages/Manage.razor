@@ -1,0 +1,221 @@
+﻿@page "/manage"
+@inject BoardgameService GameService
+@inject GameExpansionService ExpansionService
+@inject PlayerService PlayerService
+@inject GameSessionService SessionService
+<PageTitle>Beheren · MeepleOS</PageTitle>
+<h1>Handmatige invoer</h1>
+<p class="intro">Werkt ook zonder Gemini. Wijzigingen gebruiken de bestaande validatie.</p>
+@if (!string.IsNullOrEmpty(message))
+{
+    <p class="notice">@message</p>
+}
+@if (!string.IsNullOrEmpty(error))
+{
+    <p class="error">@error</p>
+}
+<details class="card" open>
+    <summary>Bordspel toevoegen of wijzigen</summary>
+    <div class="form-grid">
+        <label>
+            Bestaand bordspel
+            <select @bind="editGameId">
+                <option value="0">Nieuw bordspel</option>
+                @foreach (var g in games)
+                {
+                    <option value="@g.Id">@g.Name</option>
+                }
+            </select>
+        </label>
+        <button class="secondary" @onclick="LoadGame">Gegevens laden</button>
+        <label>
+            Naam
+            <input @bind="gameName" />
+        </label>
+        <label>
+            Min. spelers
+            <input type="number" min="1" @bind="minPlayers" />
+        </label>
+        <label>
+            Max. spelers (leeg = geen vast maximum)
+            <input type="number" min="1" @bind="maxPlayers" />
+        </label>
+        <label>
+            Speelduur in minuten
+            <input type="number" min="1" @bind="duration" />
+        </label>
+    </div>
+    <div class="actions">
+        <button @onclick="SaveGame">Opslaan</button>
+        @if (editGameId>0)
+        {
+            <button class="danger" @onclick="ConfirmDeleteGame">Verwijderen</button>
+        }
+    </div>
+</details>
+<details class="card">
+    <summary>Uitbreiding toevoegen of wijzigen</summary>
+    <div class="form-grid">
+        <label>
+            Bestaande uitbreiding
+            <select @bind="editExpansionId">
+                <option value="0">Nieuwe uitbreiding</option>
+                @foreach (var e in expansions)
+                {
+                    <option value="@e.Id">@e.BoardGameName · @e.Name</option>
+                }
+            </select>
+        </label>
+        <button class="secondary" @onclick="LoadExpansion">Gegevens laden</button>
+        <label>
+            Bordspel
+            <select @bind="expansionGameId">
+                @foreach (var g in games)
+                {
+                    <option value="@g.Id">@g.Name</option>
+                }
+            </select>
+        </label>
+        <label>
+            Naam
+            <input @bind="expansionName" />
+        </label>
+        <label>
+            Beschrijving
+            <input @bind="expansionDescription" />
+        </label>
+    </div>
+    <div class="actions">
+        <button @onclick="SaveExpansion">Opslaan</button>
+        @if (editExpansionId>0)
+        {
+            <button class="danger" @onclick="ConfirmDeleteExpansion">Verwijderen</button>
+        }
+    </div>
+</details>
+<details class="card">
+    <summary>Speler toevoegen of wijzigen</summary>
+    <div class="form-grid">
+        <label>
+            Bestaande speler
+            <select @bind="editPlayerId">
+                <option value="0">Nieuwe speler</option>
+                @foreach (var p in players)
+                {
+                    <option value="@p.Id">@p.Name</option>
+                }
+            </select>
+        </label>
+        <button class="secondary" @onclick="LoadPlayer">Gegevens laden</button>
+        <label>
+            Naam
+            <input @bind="playerName" />
+        </label>
+    </div>
+    <div class="actions">
+        <button @onclick="SavePlayer">Opslaan</button>
+        @if (editPlayerId>0)
+        {
+            <button class="danger" @onclick="ConfirmDeletePlayer">Verwijderen</button>
+        }
+    </div>
+</details>
+<details class="card" open>
+    <summary>Potje toevoegen of wijzigen</summary>
+    <div class="form-grid">
+        <label>
+            Bestaand potje
+            <select @bind="editSessionId">
+                <option value="0">Nieuw potje</option>
+                @foreach (var s in sessions)
+                {
+                    <option value="@s.Id">#@s.Id · @s.BoardGameName · @s.PlayedAt</option>
+                }
+            </select>
+        </label>
+        <button class="secondary" @onclick="LoadSession">Gegevens laden</button>
+        <label>
+            Bordspel
+            <select @bind="sessionGameId">
+                <option value="0">Kies een bordspel</option>
+                @foreach (var g in games)
+                {
+                    <option value="@g.Id">@g.Name</option>
+                }
+            </select>
+        </label>
+        <label>
+            Speeldatum
+            <input type="date" @bind="sessionDate" />
+        </label>
+        <label>
+            Opmerkingen
+            <textarea @bind="notes"></textarea>
+        </label>
+    </div>
+    <h3>Deelnemers, winnaar(s) en scores</h3>
+    <p>Selecteer minstens één deelnemer en één winnaar.</p>
+    <div class="participant-picker">
+        <label>
+            Bestaande speler
+            <select @bind="addPlayerId">
+                <option value="0">Kies een speler</option>
+                @foreach (var p in players.Where(p => rows.All(r => r.Id != p.Id)))
+                {
+                    <option value="@p.Id">@p.Name</option>
+                }
+            </select>
+        </label>
+        <button type="button" @onclick="AddParticipant" disabled="@(addPlayerId == 0)">Deelnemer toevoegen</button>
+    </div>
+    <div class="participant-grid">
+        @foreach (var row in rows)
+        {
+            <div class="participant" @key="row.Id">
+                <strong>@row.Name</strong>
+                <button type="button" class="secondary remove-participant"
+                        @onclick="() => RemoveParticipant(row.Id)"
+                        aria-label="@row.Name verwijderen">
+                    Verwijderen
+                </button>
+                <label class="winner-choice">
+                    <input type="checkbox" @bind="row.Winner" /> winnaar
+                </label>
+                <label>
+                    Score (optioneel)
+                    <input type="number" @bind="row.Score" />
+                </label>
+                <label>
+                    Positie (optioneel)
+                    <input type="number" min="1" @bind="row.Position" />
+                </label>
+            </div>
+        }
+    </div>
+    <h3>Uitbreidingen</h3>
+    <div class="choice-grid">
+        @foreach (var e in expansions.Where(e => e.BoardGameId == sessionGameId))
+        {
+            <label>
+                <input type="checkbox" checked="@selectedExpansionIds.Contains(e.Id)"
+                       @onchange="eventArgs => ToggleExpansion(e.Id, eventArgs.Value is true)" />
+                @e.Name
+            </label>
+        }
+    </div>
+    <div class="actions">
+        <button @onclick="SaveSession">Potje opslaan</button>
+        @if (editSessionId > 0)
+        {
+            <button class="danger" @onclick="ConfirmDeleteSession">Potje verwijderen</button>
+        }
+    </div>
+</details>
+@if (deleteKind is not null)
+{
+    <div class="confirm card" role="alertdialog" aria-label="Verwijderen bevestigen">
+        <p>Definitief verwijderen: @deleteKind #@deleteId?</p>
+        <button class="danger" @onclick="Delete">Ja, definitief verwijderen</button>
+        <button class="secondary" @onclick="() => deleteKind = null">Annuleren</button>
+    </div>
+}

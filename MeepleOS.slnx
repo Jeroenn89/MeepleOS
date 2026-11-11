@@ -1,5 +1,10 @@
 <Solution>
+  <Project Path="src/MeepleOS.AiClient/MeepleOS.AiClient.csproj" />
+  <Project Path="tests/AiClientTests/AiClientTests.csproj" />
   <Project Path="src/MeepleOS.BusinessLayer/MeepleOS.BusinessLayer.csproj" />
   <Project Path="src/MeepleOS.DataLayer/MeepleOS.DataLayer.csproj" />
   <Project Path="src/MeepleOS.ServerLayer/MeepleOS.ServerLayer.csproj" />
+  <Project Path="src/MeepleOS.Web/MeepleOS.Web.csproj" />
+  <Project Path="tests/WebFlows/WebFlows.csproj" />
+  <Project Path="tools/CloneTestDatabase/CloneTestDatabase.csproj" />
 </Solution>

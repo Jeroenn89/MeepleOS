@@ -5,10 +5,87 @@ MeepleOS beheert lokaal bordspellen, spelers en gespeelde potjes via een MCP-ser
 ## Structuur
 
 - `src/MeepleOS.ServerLayer`: MCP-host en twintig tools. De host gebruikt stdio.
+- `src/MeepleOS.AiClient`: interactieve Gemini-consoleclient die de bestaande stdio-tools aanroept.
+- `src/MeepleOS.Web`: responsive Blazor Web App met dashboard, collectie, profielen, potjes, statistieken, invoer en AI-chat.
 - `src/MeepleOS.BusinessLayer`: businesslogica, validatie en opslaginterfaces, zonder afhankelijkheid van EF Core.
 - `src/MeepleOS.DataLayer`: EF Core-datalaag met `Data/Models` voor tabelmodellen, `Data/Context` voor de databasecontext, plus repositories en migraties.
 - `tests/SmokeTest.ps1`: lokale protocoltest met een tijdelijke database.
 - `tests/MigrationTest`: controleert een upgrade van het bestaande SQLite-schema met bewaarde gegevens.
+- `tests/WebFlows`: controleert de handmatige lees-, filter-, profiel- en schrijfstromen op een tijdelijke database.
+
+## Webcode lezen
+
+In `src/MeepleOS.Web/Components` staat de HTML-achtige opmaak in `.razor`-bestanden. De bijbehorende velden, filters en laad- en opslagmethoden staan in de gelijknamige `.razor.cs`-bestanden. `Components/Pages/Manage.razor.cs` bevat de handmatige invoer voor bordspellen, uitbreidingen, spelers en potjes. De eigen vormgeving staat in `wwwroot/app.css`; de gekopieerde bestanden onder `wwwroot/lib` zijn externe Bootstrap-bestanden. `Program.cs` regelt de start, databaseverbinding en dependency injection.
+
+## Website lokaal starten
+
+De website vereist altijd een expliciet databasepad. Een lege testdatabase bevat de spellen en spelers van de normale MCP-server niet. Maak daarom een aparte testkopie met de SQLite-back-upfunctie; die neemt ook wijzigingen uit het WAL-bestand mee en leest de bron alleen. De kopieeropdracht weigert een bestaand doelbestand te overschrijven. `data\meepleos.db` wordt niet gewijzigd.
+
+```powershell
+Set-Location X:\MeepleOS
+dotnet build MeepleOS.slnx -c Release
+if (-not (Test-Path 'data\web-chat-test.db')) {
+    dotnet run -c Release --project tools\CloneTestDatabase -- data\meepleos.db data\web-chat-test.db
+}
+$env:MEEPLEOS_DB_PATH = 'X:\MeepleOS\data\web-chat-test.db'
+$env:ASPNETCORE_ENVIRONMENT = 'Development'
+dotnet run -c Release --no-build --no-launch-profile --project src\MeepleOS.Web --urls http://127.0.0.1:5197
+```
+
+Open op de computer `http://127.0.0.1:5197/`. De kopieeropdracht voer je alleen uit als `web-chat-test.db` nog niet bestaat; kies voor een nieuwe kopie een nieuwe bestandsnaam en stel `MEEPLEOS_DB_PATH` daarop in. De website en de door haar gestarte MCP-server gebruiken hetzelfde databasepad. `GEMINI_API_KEY` is voor de website optioneel; zonder sleutel blijven alle handmatige functies beschikbaar. De AI-chat gebruikt server-side Gemini 3.5 Flash-Lite. Stel de sleutel, indien gewenst, alleen in de huidige PowerShell-sessie in:
+
+Een tweede `dotnet run` kan niet bouwen zolang een eerdere `MeepleOS.Web.exe` nog dezelfde Debug- of Release-bestanden gebruikt. Stop de vorige instantie met Ctrl+C in het bijbehorende terminalvenster voordat je opnieuw bouwt of start. Bij een achtergebleven instantie toont `Get-Process MeepleOS.Web` de proces-ID's.
+
+```powershell
+$secureKey = Read-Host 'Gemini API-sleutel' -AsSecureString
+$env:GEMINI_API_KEY = [System.Net.NetworkCredential]::new('', $secureKey).Password
+Remove-Variable secureKey
+```
+
+Voor een telefoon op hetzelfde wifi-netwerk: zet een eigen websitewachtwoord in de huidige sessie en laat de server op het lokale netwerk luisteren:
+
+```powershell
+$securePassword = Read-Host 'Websitewachtwoord' -AsSecureString
+$env:MEEPLEOS_WEB_PASSWORD = [System.Net.NetworkCredential]::new('', $securePassword).Password
+Remove-Variable securePassword
+$env:MEEPLEOS_DB_PATH = 'X:\MeepleOS\data\web-chat-test.db'
+$env:ASPNETCORE_ENVIRONMENT = 'Development'
+dotnet run -c Release --no-build --no-launch-profile --project src\MeepleOS.Web --urls http://0.0.0.0:5197
+```
+
+Zoek het lokale IP-adres van de computer met `ipconfig` en open op de telefoon `http://<lokaal-ip>:5197/`. De browser vraagt om het websitewachtwoord. De website start niet op een netwerkadres zonder `MEEPLEOS_WEB_PASSWORD`. Gebruik dit uitsluitend op vertrouwde wifi; Basic-authenticatie over HTTP versleutelt het wachtwoord niet. Zet geen routerpoort open en publiceer deze lokale configuratie niet op internet.
+
+Een gepubliceerde Release-versie start je vanuit de publicatiemap. Bouw eerst ook de MCP-server in Release voor de AI-chat:
+
+```powershell
+Set-Location X:\MeepleOS
+dotnet build src\MeepleOS.ServerLayer -c Release
+dotnet publish src\MeepleOS.Web\MeepleOS.Web.csproj -c Release -o data\web-publish
+$env:MEEPLEOS_DB_PATH = 'X:\MeepleOS\data\web-chat-test.db'
+$env:MEEPLEOS_ROOT = 'X:\MeepleOS'
+$env:ASPNETCORE_ENVIRONMENT = 'Production'
+Set-Location X:\MeepleOS\data\web-publish
+dotnet MeepleOS.Web.dll --urls http://127.0.0.1:5198
+```
+
+Open dan `http://127.0.0.1:5198/`. Start de DLL vanuit deze map, zodat de website de gepubliceerde CSS- en Blazor-bestanden en de bijbehorende configuratie laadt.
+
+Start de lokale en gepubliceerde website niet tegelijk met hetzelfde testdatabasebestand. Gebruik voor een tweede instantie een andere testkopie. Gebruik de echte database pas als je bewust van test naar productie overstapt.
+
+De pagina's zijn: `/` (dashboard), `/games` en `/games/{id}` (collectie en spelprofiel), `/players` en `/players/{id}` (spelers), `/sessions` en `/sessions/{id}` (potjes), `/statistics` (combineerbare filters), `/manage` (toevoegen, wijzigen en bevestigd verwijderen) en `/chat` (AI). Alle functies zijn op telefoon en desktop beschikbaar. De AI-chat vraagt voor verwijderingen en wijzigingen een extra bevestiging; de bestaande opdrachtverwerker voorkomt dubbele AI-registraties met hetzelfde spel, dezelfde datum en dezelfde deelnemers en meldt reeds opgeslagen deelstappen.
+
+Bij een duidelijk genoemde nieuwe deelnemer voegt de AI-chat eerst die speler toe en gebruikt daarna het nieuwe ID voor het potje. Bij een onbekend bordspel vraagt de chat naar minimum, maximum (of expliciet geen vast maximum) en speelduur als die gegevens ontbreken. Een kort antwoord op die vervolgvraag wordt bij de oorspronkelijke opdracht gevoegd; een nieuwe zelfstandige opdracht begint opnieuw. Met `annuleer` wis je de openstaande vervolgvraag. De opdrachtverwerker controleert het hele plan vóór de eerste schrijfactie; de alleen-lezenstand voegt nooit gegevens toe.
+
+Een duidelijke tikfout van maximaal één teken in een unieke bestaande spelnaam, zoals `munckin` voor `Munchkin`, wordt in de chat naar de catalogusnaam omgezet. Als meerdere spellen passen, vraagt de chat om verduidelijking.
+
+Controle zonder echte Gemini-verzoeken:
+
+```powershell
+dotnet run -c Release --project tests\WebFlows\WebFlows.csproj
+dotnet run -c Release --project tests\AiClientTests\AiClientTests.csproj
+```
+
+Voor de Raspberry Pi 4 is later een .NET 10-runtime voor Linux ARM64 nodig. Publiceer dan met `dotnet publish src\MeepleOS.Web -c Release -r linux-arm64 --self-contained false -o publish`, kopieer de output én de MCP-server naar de Pi, stel daar `MEEPLEOS_DB_PATH`, `MEEPLEOS_ROOT` en `MEEPLEOS_SERVER_DLL` als absolute paden en de servergeheimen via de serviceomgeving in, en draai de website als `systemd`-service achter een HTTPS-reverseproxy met sterkere authenticatie. Voor toegang buitenshuis is een VPN zoals WireGuard of Tailscale de veilige route; publieke blootstelling van de huidige HTTP-wifi-instelling is niet geschikt. De Windows-pc hoeft na verhuizing van database, webapp en MCP-server niet aan te blijven.
 
 De tools roepen services in `MeepleOS.BusinessLayer` aan. Die services valideren invoer en gebruiken opslaginterfaces. `MeepleOS.DataLayer` implementeert die interfaces met SQLite. De host registreert de implementaties via dependency injection.
 
@@ -27,6 +104,40 @@ Voor een lokale test:
 powershell -NoProfile -ExecutionPolicy Bypass -File tests/SmokeTest.ps1
 dotnet run --project tests/MigrationTest/MigrationTest.csproj
 ```
+
+## Gemini-consoleclient
+
+Bouw de oplossing en stel de sleutel alleen in voor de huidige PowerShell-sessie:
+
+```powershell
+$secureKey = Read-Host 'Gemini API-sleutel' -AsSecureString
+$env:GEMINI_API_KEY = [System.Net.NetworkCredential]::new('', $secureKey).Password
+Remove-Variable secureKey
+dotnet build MeepleOS.slnx
+dotnet run --no-build --project src/MeepleOS.AiClient
+```
+
+De sleutel wordt niet naar een bestand geschreven of gelogd. Bewaar hem niet in Git. De client gebruikt `gemini-3.5-flash-lite`.
+
+Je echte collectie veilig bekijken, zonder Gemini-sleutel of wijzigingen aan de database:
+
+```powershell
+dotnet build MeepleOS.slnx -c Release --no-restore
+$env:MEEPLEOS_DB_PATH = (Resolve-Path 'data\meepleos.db').Path
+dotnet run -c Release --no-build --project src/MeepleOS.AiClient -- --read-only --list
+```
+
+`--list` toont bordspellen, spelers en uitbreidingen. `--read-only` laat de MCP-server SQLite alleen-lezen openen, slaat migraties over en blokkeert alle schrijfacties in de client. Voor interactieve vragen gebruik je dezelfde opdracht zonder `--list`, met `GEMINI_API_KEY` ingesteld. `--check-connect` controleert alleen MCP-leestools en heeft geen sleutel nodig.
+
+Per opdracht leest de client bordspellen, spelers en uitbreidingen één keer, vraagt Gemini één gestructureerd actieplan, valideert het hele plan en voert de bestaande MCP-tools in volgorde uit. Bevestigingen komen uit MCP-resultaten, zonder tweede Gemini-aanroep. Bij ontbrekende gegevens verschijnt één gerichte vraag. Na elke opdracht staat het aantal verstuurde Gemini-verzoeken; MCP-aanroepen tellen niet mee. De lokale teller staat in de genegeerde `data/gemini-requests.json` en begrenst standaard op 15 verzoeken per minuut en 500 per Amsterdamse dag. Pas dit eventueel aan met `GEMINI_RPM_LIMIT` en `GEMINI_RPD_LIMIT`. Deze teller houdt alleen verzoeken van MeepleOS bij, ook als Gemini HTTP 429 teruggeeft. Google AI Studio toont de werkelijke limiet voor je project; ander gebruik van dezelfde projectlimiet staat niet in de MeepleOS-teller. Bij HTTP 429 wordt niet automatisch opnieuw geprobeerd.
+
+Geautomatiseerde tests gebruiken mocks en een aparte tijdelijke SQLite-database; ze verbruiken geen Gemini-verzoeken en raken `data\meepleos.db` niet:
+
+```powershell
+dotnet run --project tests/AiClientTests/AiClientTests.csproj
+```
+
+De client hergebruikt de MCP-server en diens bestaande SQLite-database. Gebruik zo nodig `MEEPLEOS_DB_PATH` om expliciet dezelfde database te kiezen. De Blazor-website hergebruikt de planner, MCP-adapter en opdrachtverwerker als aparte C#-klassen.
 
 ## Verbinden met Codex
 

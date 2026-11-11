@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <BlazorDisableThrowNavigationException>true</BlazorDisableThrowNavigationException>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\MeepleOS.BusinessLayer\MeepleOS.BusinessLayer.csproj" />
+    <ProjectReference Include="..\MeepleOS.DataLayer\MeepleOS.DataLayer.csproj" />
+    <ProjectReference Include="..\MeepleOS.AiClient\MeepleOS.AiClient.csproj" />
+  </ItemGroup>
+</Project>

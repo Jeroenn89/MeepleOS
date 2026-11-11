@@ -20,9 +20,40 @@ public sealed record PopularBoardgame(int BoardGameId, string BoardGameName, int
 public sealed record PlayStatistics(int TotalPlays, List<PlayCount> PlaysByPeriod,
     List<PopularBoardgame> MostPlayedBoardgames);
 
+public sealed record FilteredStatistics(int TotalPlays, int Wins, List<PlayCount> PlaysByPeriod,
+    List<PopularBoardgame> MostPlayedBoardgames, List<PlayerStatistics> Players);
+
 public sealed class StatisticsService(IGameSessionRepository sessions, IPlayerRepository players,
     IBoardgameRepository boardgames)
 {
+    public async Task<FilteredStatistics> GetFilteredStatisticsAsync(int? playerId = null,
+        int? boardGameId = null, string groupBy = "month", StatisticsPeriod? period = null)
+    {
+        ValidateId(playerId, nameof(playerId));
+        ValidateId(boardGameId, nameof(boardGameId));
+        if (groupBy is not ("week" or "month" or "year"))
+            throw new ArgumentException("Groepeer per 'week', 'month' of 'year'.", nameof(groupBy));
+        period ??= new(null, null);
+        var history = await sessions.GetAllAsync(boardGameId, playerId, period.From, period.To);
+        var allPlayers = await players.GetAllAsync();
+        var playerRows = allPlayers.Where(p => !playerId.HasValue || p.Id == playerId)
+            .Select(p =>
+            {
+                var appearances = history.SelectMany(s => s.Players).Where(x => x.PlayerId == p.Id).ToList();
+                var wins = appearances.Count(x => x.IsWinner);
+                return new PlayerStatistics(p.Id, p.Name, appearances.Count, wins,
+                    Percentage(wins, appearances.Count));
+            }).Where(p => p.Plays > 0).OrderByDescending(p => p.Wins)
+            .ThenByDescending(p => p.WinPercentage).ThenBy(p => p.PlayerName).ToList();
+        return new FilteredStatistics(history.Count,
+            history.Sum(s => s.Players.Count(p => p.IsWinner && (!playerId.HasValue || p.PlayerId == playerId))),
+            history.GroupBy(s => PeriodKey(s.PlayedAt, groupBy)).OrderBy(g => g.Key)
+                .Select(g => new PlayCount(g.Key, g.Count())).ToList(),
+            history.GroupBy(s => new { s.BoardGameId, s.BoardGameName })
+                .Select(g => new PopularBoardgame(g.Key.BoardGameId, g.Key.BoardGameName, g.Count()))
+                .OrderByDescending(g => g.Plays).ThenBy(g => g.BoardGameName).ToList(), playerRows);
+    }
+
     public async Task<List<PlayerStatistics>> GetPlayerStatisticsAsync(int? playerId = null,
         int? boardGameId = null, StatisticsPeriod? period = null)
     {

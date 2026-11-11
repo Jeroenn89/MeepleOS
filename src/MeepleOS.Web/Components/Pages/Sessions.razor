@@ -1,0 +1,47 @@
+@page "/sessions"
+@inject GameSessionService SessionService
+@inject BoardgameService GameService
+@inject PlayerService PlayerService
+<PageTitle>Potjes · MeepleOS</PageTitle>
+<h1>Speelgeschiedenis</h1>
+<div class="filters">
+    <label>
+        Bordspel
+        <select @bind="gameId">
+            <option value="0">Alle</option>
+            @foreach (var g in games)
+            {
+                <option value="@g.Id">@g.Name</option>
+            }
+        </select>
+    </label>
+    <label>
+        Speler
+        <select @bind="playerId">
+            <option value="0">Alle</option>
+            @foreach (var p in players)
+            {
+                <option value="@p.Id">@p.Name</option>
+            }
+        </select>
+    </label>
+</div>
+@if (history is null)
+{
+    <p>Laden…</p>
+}
+else
+{
+    <div class="grid">
+        @foreach (var s in history.Where(MatchesFilters))
+        {
+            <article class="card">
+                <h2>
+                    <a href="/sessions/@s.Id">@s.BoardGameName</a>
+                </h2>
+                <p>@s.PlayedAt.ToString("dd-MM-yyyy") · @string.Join(", ", s.Players.Select(p => p.PlayerName))</p>
+                <p>Winnaar(s): @string.Join(", ", s.Players.Where(p => p.IsWinner).Select(p => p.PlayerName))</p>
+            </article>
+        }
+    </div>
+}
