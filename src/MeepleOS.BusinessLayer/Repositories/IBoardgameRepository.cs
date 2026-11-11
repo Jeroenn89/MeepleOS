@@ -10,4 +10,5 @@ public interface IBoardgameRepository
     Task<BoardgameResult?> UpdateAsync(int id, string name, int minPlayers, int maxPlayers, int estimatedMinutes);
     Task<bool> DeleteAsync(int id);
     Task<bool> HasSessionsAsync(int id);
+    Task<bool> HasExpansionsAsync(int id);
 }

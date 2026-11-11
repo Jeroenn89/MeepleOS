@@ -25,10 +25,23 @@ public sealed class GameSessionRepository(IDbContextFactory<MeepleDbContext> dbF
             .ToListAsync()).ToHashSet();
     }
 
-    public async Task<GameSessionResult> AddAsync(int boardGameId, DateOnly playedAt, string? notes,
-        IReadOnlyList<SessionPlayerInput> players, IReadOnlySet<int> winnerPlayerIds)
+    public async Task<HashSet<int>> GetExistingExpansionIdsAsync(int boardGameId, IReadOnlyCollection<int> expansionIds)
     {
         await using var db = await dbFactory.CreateDbContextAsync();
+        var ids = expansionIds.ToArray();
+        return (await db.GameExpansions.Where(x => x.BoardGameId == boardGameId && ids.Contains(x.Id))
+            .Select(x => x.Id).ToListAsync()).ToHashSet();
+    }
+
+    public async Task<GameSessionResult> AddAsync(int boardGameId, DateOnly playedAt, string? notes,
+        IReadOnlyList<SessionPlayerInput> players, IReadOnlySet<int> winnerPlayerIds,
+        IReadOnlyCollection<int> expansionIds)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync();
+        var expansionIdArray = expansionIds.ToArray();
+        if (await db.GameExpansions.CountAsync(x => x.BoardGameId == boardGameId && expansionIdArray.Contains(x.Id))
+            != expansionIdArray.Length)
+            throw new ArgumentException("Een of meer uitbreidingen horen niet bij dit bordspel.", nameof(expansionIds));
         var session = new GameSession
         {
             BoardGameId = boardGameId,
@@ -40,7 +53,8 @@ public sealed class GameSessionRepository(IDbContextFactory<MeepleDbContext> dbF
                 Score = x.Score,
                 Position = x.Position,
                 IsWinner = winnerPlayerIds.Contains(x.PlayerId)
-            }).ToList()
+            }).ToList(),
+            Expansions = expansionIds.Select(id => new GameSessionExpansion { GameExpansionId = id }).ToList()
         };
 
         db.GameSessions.Add(session);
@@ -73,7 +87,10 @@ public sealed class GameSessionRepository(IDbContextFactory<MeepleDbContext> dbF
             .Select(x => new GameSessionResult(x.Id, x.BoardGameId, x.BoardGame.Name,
                 x.PlayedAt, x.Notes, x.Players.OrderBy(p => p.Id)
                     .Select(p => new SessionPlayerResult(p.Id, p.PlayerId, p.Player.Name,
-                        p.Score, p.Position, p.IsWinner)).ToList()))
+                        p.Score, p.Position, p.IsWinner)).ToList(),
+                x.Expansions.OrderBy(e => e.GameExpansionId)
+                    .Select(e => new GameExpansionResult(e.GameExpansion.Id, e.GameExpansion.BoardGameId,
+                        e.GameExpansion.BoardGame.Name, e.GameExpansion.Name, e.GameExpansion.Description)).ToList()))
             .ToListAsync();
     }
 
@@ -86,16 +103,21 @@ public sealed class GameSessionRepository(IDbContextFactory<MeepleDbContext> dbF
             .Select(x => new GameSessionResult(x.Id, x.BoardGameId, x.BoardGame.Name,
                 x.PlayedAt, x.Notes, x.Players.OrderBy(p => p.Id)
                     .Select(p => new SessionPlayerResult(p.Id, p.PlayerId, p.Player.Name,
-                        p.Score, p.Position, p.IsWinner)).ToList()))
+                        p.Score, p.Position, p.IsWinner)).ToList(),
+                x.Expansions.OrderBy(e => e.GameExpansionId)
+                    .Select(e => new GameExpansionResult(e.GameExpansion.Id, e.GameExpansion.BoardGameId,
+                        e.GameExpansion.BoardGame.Name, e.GameExpansion.Name, e.GameExpansion.Description)).ToList()))
             .SingleOrDefaultAsync();
     }
 
     public async Task<GameSessionResult?> UpdateAsync(int id, int boardGameId, DateOnly playedAt, string? notes,
-        IReadOnlyList<SessionPlayerInput> players, IReadOnlySet<int> winnerPlayerIds)
+        IReadOnlyList<SessionPlayerInput> players, IReadOnlySet<int> winnerPlayerIds,
+        IReadOnlyCollection<int> expansionIds)
     {
         await using var db = await dbFactory.CreateDbContextAsync();
         await using var transaction = await db.Database.BeginTransactionAsync();
-        var session = await db.GameSessions.Include(x => x.Players).SingleOrDefaultAsync(x => x.Id == id);
+        var session = await db.GameSessions.Include(x => x.Players).Include(x => x.Expansions)
+            .SingleOrDefaultAsync(x => x.Id == id);
 
         if (session is null)
             return null;
@@ -107,10 +129,16 @@ public sealed class GameSessionRepository(IDbContextFactory<MeepleDbContext> dbF
         if (await db.Players.CountAsync(x => ids.Contains(x.Id)) != ids.Length)
             throw new ArgumentException("Een of meer deelnemers bestaan niet.", nameof(players));
 
+        var expansionIdArray = expansionIds.ToArray();
+        if (await db.GameExpansions.CountAsync(x => x.BoardGameId == boardGameId && expansionIdArray.Contains(x.Id))
+            != expansionIdArray.Length)
+            throw new ArgumentException("Een of meer uitbreidingen horen niet bij dit bordspel.", nameof(expansionIds));
+
         session.BoardGameId = boardGameId;
         session.PlayedAt = playedAt;
         session.Notes = notes;
         db.SessionPlayers.RemoveRange(session.Players);
+        db.GameSessionExpansions.RemoveRange(session.Expansions);
         await db.SaveChangesAsync();
 
         session.Players = players.Select(x => new SessionPlayer
@@ -119,6 +147,10 @@ public sealed class GameSessionRepository(IDbContextFactory<MeepleDbContext> dbF
             Score = x.Score,
             Position = x.Position,
             IsWinner = winnerPlayerIds.Contains(x.PlayerId)
+        }).ToList();
+        session.Expansions = expansionIds.Select(expansionId => new GameSessionExpansion
+        {
+            GameExpansionId = expansionId
         }).ToList();
         await db.SaveChangesAsync();
         await transaction.CommitAsync();
@@ -147,6 +179,9 @@ public sealed class GameSessionRepository(IDbContextFactory<MeepleDbContext> dbF
             .Select(x => new GameSessionResult(x.Id, x.BoardGameId, x.BoardGame.Name,
                 x.PlayedAt, x.Notes, x.Players.OrderBy(p => p.Id)
                     .Select(p => new SessionPlayerResult(p.Id, p.PlayerId, p.Player.Name,
-                        p.Score, p.Position, p.IsWinner)).ToList()))
+                        p.Score, p.Position, p.IsWinner)).ToList(),
+                x.Expansions.OrderBy(e => e.GameExpansionId)
+                    .Select(e => new GameExpansionResult(e.GameExpansion.Id, e.GameExpansion.BoardGameId,
+                        e.GameExpansion.BoardGame.Name, e.GameExpansion.Name, e.GameExpansion.Description)).ToList()))
             .SingleAsync();
 }

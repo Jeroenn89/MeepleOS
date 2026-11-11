@@ -1,6 +1,7 @@
+param([string]$Configuration = 'Debug')
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-$dll = Join-Path $root 'src/MeepleOS.ServerLayer/bin/Debug/net10.0/MeepleOS.ServerLayer.dll'
+$dll = Join-Path $root "src/MeepleOS.ServerLayer/bin/$Configuration/net10.0/MeepleOS.ServerLayer.dll"
 $database = Join-Path ([IO.Path]::GetTempPath()) ("meepleos-smoke-{0}.db" -f [guid]::NewGuid())
 
 $start = [Diagnostics.ProcessStartInfo]::new('dotnet')
@@ -45,10 +46,11 @@ try {
     $names = @($tools.tools | ForEach-Object { $_.name })
     foreach ($name in @('add_boardgame', 'get_boardgames', 'add_player', 'get_players', 'record_game_session', 'get_game_sessions',
         'get_player_statistics', 'get_boardgame_statistics', 'get_leaderboard', 'get_play_statistics',
-        'update_boardgame', 'delete_boardgame', 'update_player', 'delete_player', 'update_game_session', 'delete_game_session')) {
+        'update_boardgame', 'delete_boardgame', 'update_player', 'delete_player', 'update_game_session', 'delete_game_session',
+        'add_game_expansion', 'get_game_expansions', 'update_game_expansion', 'delete_game_expansion')) {
         if ($name -notin $names) { throw "Ontbrekende tool: $name" }
     }
-    foreach ($name in @('delete_boardgame', 'delete_player', 'delete_game_session')) {
+    foreach ($name in @('delete_boardgame', 'delete_player', 'delete_game_session', 'delete_game_expansion')) {
         $tool = $tools.tools | Where-Object { $_.name -eq $name }
         if ($tool.annotations.destructiveHint -ne $true) { throw "Destructieve annotatie ontbreekt bij $name" }
     }
@@ -267,7 +269,110 @@ try {
     $missing = Invoke-Mcp 55 'tools/call' @{ name = 'delete_game_session'; arguments = @{ id = 999999 } }
     if (-not $missing.isError) { throw 'Niet-bestaand potje verwijderen gaf geen fout' }
 
-    Write-Output 'MCP-smoketest geslaagd: zestien tools, CRUD, statistieken, filters en validatie.'
+    if (@($unscored.expansions).Count -ne 0) { throw 'Bestaand potje heeft geen lege uitbreidingenlijst' }
+    $firstExpansion = Get-ToolData (Invoke-Mcp 61 'tools/call' @{ name = 'add_game_expansion'; arguments = @{
+        boardGameId = $eldorado.id; name = 'Helden'; description = 'Eerste uitbreiding'
+    } })
+    $secondExpansion = Get-ToolData (Invoke-Mcp 62 'tools/call' @{ name = 'add_game_expansion'; arguments = @{
+        boardGameId = $eldorado.id; name = 'Grot'
+    } })
+    $otherExpansion = Get-ToolData (Invoke-Mcp 63 'tools/call' @{ name = 'add_game_expansion'; arguments = @{
+        boardGameId = $carcassonne.id; name = 'Herbergen'
+    } })
+    $foundExpansions = @(Get-ToolData (Invoke-Mcp 64 'tools/call' @{ name = 'get_game_expansions'; arguments = @{
+        boardGameId = $eldorado.id
+    } }))
+    if ($foundExpansions.Count -ne 2 -or $foundExpansions[0].boardGameName -ne 'El Dorado') {
+        throw 'Meerdere uitbreidingen of bordspelnaam ontbreken'
+    }
+    $duplicateExpansion = Invoke-Mcp 65 'tools/call' @{ name = 'add_game_expansion'; arguments = @{
+        boardGameId = $eldorado.id; name = 'helden'
+    } }
+    if (-not $duplicateExpansion.isError) { throw 'Dubbele uitbreiding met andere hoofdletters geaccepteerd' }
+    $updatedExpansion = Get-ToolData (Invoke-Mcp 66 'tools/call' @{ name = 'update_game_expansion'; arguments = @{
+        id = $firstExpansion.id; changes = @{ description = $null }
+    } })
+    if ($null -ne $updatedExpansion.description -or $updatedExpansion.name -ne 'Helden') {
+        throw 'Beschrijving wissen wijzigde andere velden'
+    }
+    $renamedExpansion = Get-ToolData (Invoke-Mcp 79 'tools/call' @{ name = 'update_game_expansion'; arguments = @{
+        id = $secondExpansion.id; changes = @{ name = 'De Grot' }
+    } })
+    if ($renamedExpansion.name -ne 'De Grot' -or $renamedExpansion.boardGameId -ne $eldorado.id) {
+        throw 'Uitbreidingsnaam wijzigen of basisspel behouden mislukt'
+    }
+
+    $withoutExpansion = Get-ToolData (Invoke-Mcp 67 'tools/call' @{ name = 'record_game_session'; arguments = @{
+        boardGameId = $eldorado.id; playedAt = '2026-11-12';
+        players = @(@{ playerId = $alex.id }, @{ playerId = $pat.id }); winnerPlayerIds = @($alex.id)
+    } })
+    if (@($withoutExpansion.expansions).Count -ne 0) { throw 'Potje zonder uitbreidingen kreeg koppelingen' }
+    $withExpansion = Get-ToolData (Invoke-Mcp 68 'tools/call' @{ name = 'record_game_session'; arguments = @{
+        boardGameId = $eldorado.id; playedAt = '2026-11-12';
+        players = @(@{ playerId = $alex.id }, @{ playerId = $pat.id }); winnerPlayerIds = @($pat.id);
+        expansionIds = @($firstExpansion.id, $secondExpansion.id)
+    } })
+    if (@($withExpansion.expansions).Count -ne 2) { throw 'Potje met twee uitbreidingen is niet opgeslagen' }
+    $loadedSession = @(Get-ToolData (Invoke-Mcp 80 'tools/call' @{ name = 'get_game_sessions'; arguments = @{
+        from = '2026-11-12'; to = '2026-11-12'
+    } })) | Where-Object { $_.id -eq $withExpansion.id }
+    if (@($loadedSession).Count -ne 1 -or @($loadedSession.expansions).Count -ne 2) {
+        throw 'get_game_sessions toont gebruikte uitbreidingen niet'
+    }
+    $wrongGameExpansion = Invoke-Mcp 69 'tools/call' @{ name = 'record_game_session'; arguments = @{
+        boardGameId = $eldorado.id; playedAt = '2026-11-12';
+        players = @(@{ playerId = $alex.id }); winnerPlayerIds = @($alex.id);
+        expansionIds = @($otherExpansion.id)
+    } }
+    if (-not $wrongGameExpansion.isError) { throw 'Uitbreiding van ander basisspel geaccepteerd' }
+    $invalidUpdate = Invoke-Mcp 81 'tools/call' @{ name = 'update_game_session'; arguments = @{
+        id = $withExpansion.id; changes = @{ notes = 'Mag niet blijven'; expansionIds = @($otherExpansion.id) }
+    } }
+    if (-not $invalidUpdate.isError) { throw 'Uitbreiding van ander basisspel bij wijzigen geaccepteerd' }
+    $afterInvalidUpdate = @(Get-ToolData (Invoke-Mcp 82 'tools/call' @{ name = 'get_game_sessions'; arguments = @{
+        from = '2026-11-12'; to = '2026-11-12'
+    } })) | Where-Object { $_.id -eq $withExpansion.id }
+    if ($null -ne $afterInvalidUpdate.notes -or @($afterInvalidUpdate.expansions).Count -ne 2) {
+        throw 'Ongeldige potjewijziging was niet atomair'
+    }
+    $duplicateLink = Invoke-Mcp 70 'tools/call' @{ name = 'record_game_session'; arguments = @{
+        boardGameId = $eldorado.id; playedAt = '2026-11-12';
+        players = @(@{ playerId = $alex.id }); winnerPlayerIds = @($alex.id);
+        expansionIds = @($firstExpansion.id, $firstExpansion.id)
+    } }
+    if (-not $duplicateLink.isError) { throw 'Dubbele uitbreiding bij potje geaccepteerd' }
+
+    $removedExpansion = Get-ToolData (Invoke-Mcp 71 'tools/call' @{ name = 'update_game_session'; arguments = @{
+        id = $withExpansion.id; changes = @{ expansionIdsToRemove = @($secondExpansion.id) }
+    } })
+    if (@($removedExpansion.expansions).Count -ne 1) { throw 'Uitbreiding verwijderen van potje mislukt' }
+    $addedExpansion = Get-ToolData (Invoke-Mcp 72 'tools/call' @{ name = 'update_game_session'; arguments = @{
+        id = $withExpansion.id; changes = @{ expansionIdsToAdd = @($secondExpansion.id) }
+    } })
+    if (@($addedExpansion.expansions).Count -ne 2) { throw 'Uitbreiding toevoegen aan potje mislukt' }
+    $blockedExpansionDelete = Invoke-Mcp 73 'tools/call' @{ name = 'delete_game_expansion'; arguments = @{
+        id = $firstExpansion.id
+    } }
+    if (-not $blockedExpansionDelete.isError) { throw 'Gebruikte uitbreiding kon worden verwijderd' }
+    $clearedExpansion = Get-ToolData (Invoke-Mcp 74 'tools/call' @{ name = 'update_game_session'; arguments = @{
+        id = $withExpansion.id; changes = @{ expansionIds = @() }
+    } })
+    if (@($clearedExpansion.expansions).Count -ne 0) { throw 'Uitbreidingenlijst leegmaken mislukt' }
+    $restoredExpansion = Get-ToolData (Invoke-Mcp 75 'tools/call' @{ name = 'update_game_session'; arguments = @{
+        id = $withExpansion.id; changes = @{ expansionIds = @($firstExpansion.id) }
+    } })
+    if (@($restoredExpansion.expansions).Count -ne 1) { throw 'Uitbreidingenlijst vervangen mislukt' }
+    $null = Get-ToolData (Invoke-Mcp 76 'tools/call' @{ name = 'delete_game_session'; arguments = @{
+        id = $withExpansion.id
+    } })
+    $stillExists = @(Get-ToolData (Invoke-Mcp 77 'tools/call' @{ name = 'get_game_expansions'; arguments = @{
+        boardGameId = $eldorado.id
+    } }))
+    if ($stillExists.Count -ne 2) { throw 'Potje verwijderen heeft uitbreidingen verwijderd' }
+    $null = Get-ToolData (Invoke-Mcp 78 'tools/call' @{ name = 'delete_game_expansion'; arguments = @{
+        id = $firstExpansion.id
+    } })
+    Write-Output 'MCP-smoketest geslaagd: twintig tools, uitbreidingen, CRUD, statistieken, filters en validatie.'
 }
 finally {
     $process.StandardInput.Close()

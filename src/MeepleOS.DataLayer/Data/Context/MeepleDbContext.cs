@@ -9,6 +9,8 @@ public sealed class MeepleDbContext(DbContextOptions<MeepleDbContext> options) :
     public DbSet<Player> Players => Set<Player>();
     public DbSet<GameSession> GameSessions => Set<GameSession>();
     public DbSet<SessionPlayer> SessionPlayers => Set<SessionPlayer>();
+    public DbSet<GameExpansion> GameExpansions => Set<GameExpansion>();
+    public DbSet<GameSessionExpansion> GameSessionExpansions => Set<GameSessionExpansion>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -28,5 +30,18 @@ public sealed class MeepleDbContext(DbContextOptions<MeepleDbContext> options) :
             .HasForeignKey(x => x.PlayerId).OnDelete(DeleteBehavior.Restrict);
         modelBuilder.Entity<SessionPlayer>().HasIndex(x => new { x.GameSessionId, x.PlayerId }).IsUnique();
         modelBuilder.Entity<SessionPlayer>().HasIndex(x => x.PlayerId);
+
+        modelBuilder.Entity<GameExpansion>().Property(x => x.Name).HasMaxLength(200);
+        modelBuilder.Entity<GameExpansion>().Property(x => x.NormalizedName).HasMaxLength(200);
+        modelBuilder.Entity<GameExpansion>().HasIndex(x => new { x.BoardGameId, x.NormalizedName }).IsUnique();
+        modelBuilder.Entity<GameExpansion>().HasOne(x => x.BoardGame).WithMany()
+            .HasForeignKey(x => x.BoardGameId).OnDelete(DeleteBehavior.Restrict);
+
+        modelBuilder.Entity<GameSessionExpansion>().HasKey(x => new { x.GameSessionId, x.GameExpansionId });
+        modelBuilder.Entity<GameSessionExpansion>().HasOne(x => x.GameSession).WithMany(x => x.Expansions)
+            .HasForeignKey(x => x.GameSessionId).OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<GameSessionExpansion>().HasOne(x => x.GameExpansion).WithMany()
+            .HasForeignKey(x => x.GameExpansionId).OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<GameSessionExpansion>().HasIndex(x => x.GameExpansionId);
     }
 }

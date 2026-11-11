@@ -4,7 +4,13 @@ Bordspel functies
 - Bordspel toevoegen:             Naam, minimum- en maximumaantal spelers en geschatte speelduur vastleggen.
 - Bordspellen bekijken:           Alle opgeslagen bordspellen opvragen.
 - Bordspel wijzigen:              Opgegeven gegevens van een opgeslagen bordspel aanpassen.
-- Bordspel verwijderen:           Een bordspel zonder gespeelde potjes verwijderen.
+- Bordspel verwijderen:           Een bordspel zonder gespeelde potjes of gekoppelde uitbreidingen verwijderen.
+
+Uitbreiding functies
+- Uitbreiding toevoegen:          Een uitbreiding met naam en optionele beschrijving aan een bestaand bordspel koppelen; namen zijn per bordspel uniek, ongeacht hoofdletters.
+- Uitbreidingen bekijken:         Alle uitbreidingen met hun basisspel opvragen, eventueel gefilterd op bordspel.
+- Uitbreiding wijzigen:           Naam en/of beschrijving aanpassen; de beschrijving kan ook worden gewist.
+- Uitbreiding verwijderen:        Een uitbreiding verwijderen zolang deze niet in gespeelde potjes is gebruikt.
 
 Speler functies
 - Speler toevoegen:               Een speler op naam registreren. Een bestaande naam geeft de bestaande speler terug.
@@ -13,10 +19,10 @@ Speler functies
 - Speler verwijderen:             Een speler zonder gespeelde potjes verwijderen.
 
 Spel functies
-- Potje registreren:              Een bordspel, speeldatum, deelnemers en één of meer winnaars vastleggen; scores, eindposities en opmerkingen zijn optioneel.
-- Gespeelde potjes bekijken:      De speelgeschiedenis opvragen, eventueel gefilterd op bordspel, speler of datumperiode.
-- Potje wijzigen:                 Opgegeven gegevens van een geregistreerd potje aanpassen.
-- Potje verwijderen:              Een potje met zijn deelnameregistraties verwijderen.
+- Potje registreren:              Een bordspel, speeldatum, deelnemers en één of meer winnaars vastleggen; uitbreidingen van het gekozen bordspel, scores, eindposities en opmerkingen zijn optioneel.
+- Gespeelde potjes bekijken:      De speelgeschiedenis met gebruikte uitbreidingen opvragen, eventueel gefilterd op bordspel, speler of datumperiode.
+- Potje wijzigen:                 Opgegeven gegevens aanpassen; gebruikte uitbreidingen toevoegen, verwijderen of volledig vervangen.
+- Potje verwijderen:              Een potje met zijn deelnameregistraties en uitbreidingskoppelingen verwijderen; de uitbreidingen zelf blijven bestaan.
 
 Statistiek functies
 - Spelerstatistieken bekijken:    Aantal potjes, overwinningen en winstpercentage per speler opvragen.

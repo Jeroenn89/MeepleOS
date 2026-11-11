@@ -8,4 +8,5 @@ public sealed class GameSession
     public DateOnly PlayedAt { get; set; }
     public string? Notes { get; set; }
     public List<SessionPlayer> Players { get; set; } = [];
+    public List<GameSessionExpansion> Expansions { get; set; } = [];
 }

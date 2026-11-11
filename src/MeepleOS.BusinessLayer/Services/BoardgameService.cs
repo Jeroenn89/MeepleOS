@@ -62,6 +62,9 @@ public sealed class BoardgameService(IBoardgameRepository boardgames)
         if (await boardgames.HasSessionsAsync(id))
             throw new InvalidOperationException("Dit bordspel kan niet worden verwijderd: er zijn gespeelde potjes aan gekoppeld.");
 
+        if (await boardgames.HasExpansionsAsync(id))
+            throw new InvalidOperationException("Dit bordspel kan niet worden verwijderd: er zijn uitbreidingen aan gekoppeld.");
+
         return await boardgames.DeleteAsync(id);
     }
 }

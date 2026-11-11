@@ -24,6 +24,9 @@ builder.Services.AddDbContextFactory<MeepleDbContext>(options => options.UseSqli
 builder.Services.AddSingleton<IBoardgameRepository, BoardgameRepository>();
 builder.Services.AddSingleton<BoardgameService>();
 
+builder.Services.AddSingleton<IGameExpansionRepository, GameExpansionRepository>();
+builder.Services.AddSingleton<GameExpansionService>();
+
 // Spelers: opslag en businesslogica.
 builder.Services.AddSingleton<IPlayerRepository, PlayerRepository>();
 builder.Services.AddSingleton<PlayerService>();
@@ -38,6 +41,7 @@ builder.Services.AddSingleton<StatisticsService>();
 // MCP-commando's per categorie.
 var mcp = builder.Services.AddMcpServer().WithStdioServerTransport();
 mcp.WithTools<BoardgameTools>(); // bordspellen toevoegen, bekijken, wijzigen en verwijderen
+mcp.WithTools<GameExpansionTools>(); // uitbreidingen beheren
 mcp.WithTools<PlayerTools>();    // spelers toevoegen, bekijken, wijzigen en verwijderen
 mcp.WithTools<GameSessionTools>(); // potjes registreren, bekijken, wijzigen en verwijderen
 mcp.WithTools<StatisticsTools>(); // vier statistiektools

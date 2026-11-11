@@ -10,17 +10,20 @@ public sealed record SessionPlayerResult(int Id, int PlayerId, string PlayerName
     int? Position, bool IsWinner);
 
 public sealed record GameSessionResult(int Id, int BoardGameId, string BoardGameName,
-    DateOnly PlayedAt, string? Notes, List<SessionPlayerResult> Players);
+    DateOnly PlayedAt, string? Notes, List<SessionPlayerResult> Players,
+    List<GameExpansionResult> Expansions);
 
 public sealed class GameSessionService(IGameSessionRepository sessions)
 {
     public async Task<GameSessionResult> RecordAsync(int boardGameId, DateOnly playedAt,
-        IReadOnlyList<SessionPlayerInput> players, IReadOnlyCollection<int> winnerPlayerIds, string? notes = null)
+        IReadOnlyList<SessionPlayerInput> players, IReadOnlyCollection<int> winnerPlayerIds, string? notes = null,
+        IReadOnlyCollection<int>? expansionIds = null)
     {
-        await ValidateAsync(boardGameId, playedAt, players, winnerPlayerIds);
+        expansionIds ??= [];
+        await ValidateAsync(boardGameId, playedAt, players, winnerPlayerIds, expansionIds);
         notes = string.IsNullOrWhiteSpace(notes) ? null : notes.Trim();
 
-        return await sessions.AddAsync(boardGameId, playedAt, notes, players, winnerPlayerIds.ToHashSet());
+        return await sessions.AddAsync(boardGameId, playedAt, notes, players, winnerPlayerIds.ToHashSet(), expansionIds);
     }
 
     public async Task<GameSessionResult> UpdateAsync(int id, JsonElement changes)
@@ -38,8 +41,13 @@ public sealed class GameSessionService(IGameSessionRepository sessions)
         var notes = current.Notes;
         var players = current.Players.Select(x => new SessionPlayerInput(x.PlayerId, x.Score, x.Position)).ToList();
         var winners = current.Players.Where(x => x.IsWinner).Select(x => x.PlayerId).ToList();
+        var expansionIds = current.Expansions.Select(x => x.Id).ToList();
         var hasPlayers = changes.TryGetProperty("players", out _);
         var hasPlayerChanges = changes.TryGetProperty("playerChanges", out _);
+        var hasExpansions = changes.TryGetProperty("expansionIds", out _);
+        if (hasExpansions && (changes.TryGetProperty("expansionIdsToAdd", out _) ||
+            changes.TryGetProperty("expansionIdsToRemove", out _)))
+            throw new ArgumentException("Gebruik expansionIds of expansionIdsToAdd/expansionIdsToRemove.", nameof(changes));
 
         if (hasPlayers && hasPlayerChanges)
             throw new ArgumentException("Gebruik players of playerChanges, niet allebei.", nameof(changes));
@@ -84,6 +92,27 @@ public sealed class GameSessionService(IGameSessionRepository sessions)
                     winners = property.Value.EnumerateArray().Select(x => ReadInt(x, "winnerPlayerIds")).ToList();
                     break;
 
+                case "expansionIds":
+                    expansionIds = ReadIds(property.Value, "expansionIds");
+                    break;
+
+                case "expansionIdsToAdd":
+                    foreach (var expansionId in ReadIds(property.Value, "expansionIdsToAdd"))
+                    {
+                        if (expansionIds.Contains(expansionId))
+                            throw new ArgumentException("De uitbreiding is al aan dit potje gekoppeld.", nameof(changes));
+                        expansionIds.Add(expansionId);
+                    }
+                    break;
+
+                case "expansionIdsToRemove":
+                    foreach (var expansionId in ReadIds(property.Value, "expansionIdsToRemove"))
+                    {
+                        if (!expansionIds.Remove(expansionId))
+                            throw new ArgumentException("De uitbreiding is niet aan dit potje gekoppeld.", nameof(changes));
+                    }
+                    break;
+
                 case "playerChanges":
                     if (property.Value.ValueKind != JsonValueKind.Array)
                         throw new ArgumentException("Geef spelerwijzigingen als lijst op.", nameof(changes));
@@ -120,10 +149,10 @@ public sealed class GameSessionService(IGameSessionRepository sessions)
             }
         }
 
-        await ValidateAsync(boardGameId, playedAt, players, winners);
+        await ValidateAsync(boardGameId, playedAt, players, winners, expansionIds);
         notes = string.IsNullOrWhiteSpace(notes) ? null : notes.Trim();
 
-        return await sessions.UpdateAsync(id, boardGameId, playedAt, notes, players, winners.ToHashSet())
+        return await sessions.UpdateAsync(id, boardGameId, playedAt, notes, players, winners.ToHashSet(), expansionIds)
             ?? throw new ArgumentException("Het potje bestaat niet meer.", nameof(id));
     }
 
@@ -144,8 +173,16 @@ public sealed class GameSessionService(IGameSessionRepository sessions)
     private static int? ReadNullableInt(JsonElement value, string field) =>
         value.ValueKind == JsonValueKind.Null ? null : ReadInt(value, field);
 
+    private static List<int> ReadIds(JsonElement value, string field)
+    {
+        if (value.ValueKind != JsonValueKind.Array)
+            throw new ArgumentException($"{field} moet een lijst zijn.");
+        return value.EnumerateArray().Select(x => ReadInt(x, field)).ToList();
+    }
+
     private async Task ValidateAsync(int boardGameId, DateOnly playedAt,
-        IReadOnlyList<SessionPlayerInput> players, IReadOnlyCollection<int> winnerPlayerIds)
+        IReadOnlyList<SessionPlayerInput> players, IReadOnlyCollection<int> winnerPlayerIds,
+        IReadOnlyCollection<int> expansionIds)
     {
         if (boardGameId < 1)
             throw new ArgumentException("Selecteer een geldig bordspel.", nameof(boardGameId));
@@ -183,6 +220,19 @@ public sealed class GameSessionService(IGameSessionRepository sessions)
         var existingPlayerIds = await sessions.GetExistingPlayerIdsAsync(playerIds);
         if (!playerIds.IsSubsetOf(existingPlayerIds))
             throw new ArgumentException("Een of meer deelnemers bestaan niet.", nameof(players));
+
+        var uniqueExpansionIds = new HashSet<int>();
+        foreach (var expansionId in expansionIds)
+        {
+            if (expansionId < 1 || !uniqueExpansionIds.Add(expansionId))
+                throw new ArgumentException("Geef iedere geldige uitbreiding maximaal eenmaal op.", nameof(expansionIds));
+        }
+        if (uniqueExpansionIds.Count > 0)
+        {
+            var existing = await sessions.GetExistingExpansionIdsAsync(boardGameId, uniqueExpansionIds);
+            if (!uniqueExpansionIds.IsSubsetOf(existing))
+                throw new ArgumentException("Een of meer uitbreidingen bestaan niet of horen niet bij dit bordspel.", nameof(expansionIds));
+        }
 
     }
 

@@ -67,6 +67,12 @@ public sealed class BoardgameRepository(IDbContextFactory<MeepleDbContext> dbFac
         return await db.GameSessions.AnyAsync(x => x.BoardGameId == id);
     }
 
+    public async Task<bool> HasExpansionsAsync(int id)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync();
+        return await db.GameExpansions.AnyAsync(x => x.BoardGameId == id);
+    }
+
     public async Task<bool> DeleteAsync(int id)
     {
         await using var db = await dbFactory.CreateDbContextAsync();
@@ -77,6 +83,9 @@ public sealed class BoardgameRepository(IDbContextFactory<MeepleDbContext> dbFac
         if (await db.GameSessions.AnyAsync(x => x.BoardGameId == id))
             throw new InvalidOperationException("Dit bordspel kan niet worden verwijderd: er zijn gespeelde potjes aan gekoppeld.");
 
+        if (await db.GameExpansions.AnyAsync(x => x.BoardGameId == id))
+            throw new InvalidOperationException("Dit bordspel kan niet worden verwijderd: er zijn uitbreidingen aan gekoppeld.");
+
         db.Boardgames.Remove(game);
 
         try
@@ -85,7 +94,7 @@ public sealed class BoardgameRepository(IDbContextFactory<MeepleDbContext> dbFac
         }
         catch (DbUpdateException ex)
         {
-            throw new InvalidOperationException("Dit bordspel kan niet worden verwijderd: er zijn gespeelde potjes aan gekoppeld.", ex);
+            throw new InvalidOperationException("Dit bordspel kan niet worden verwijderd: er zijn gespeelde potjes of uitbreidingen aan gekoppeld.", ex);
         }
 
         return true;
