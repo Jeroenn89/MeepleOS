@@ -3,14 +3,20 @@ MeepleOS functies
 Bordspel functies
 - Bordspel toevoegen:             Naam, minimum- en maximumaantal spelers en geschatte speelduur vastleggen.
 - Bordspellen bekijken:           Alle opgeslagen bordspellen opvragen.
+- Bordspel wijzigen:             Opgegeven gegevens van een opgeslagen bordspel aanpassen.
+- Bordspel verwijderen:          Een bordspel zonder gespeelde potjes verwijderen.
 
 Speler functies
 - Speler toevoegen:               Een speler op naam registreren. Een bestaande naam geeft de bestaande speler terug.
 - Spelers bekijken:               Alle geregistreerde spelers opvragen.
+- Speler wijzigen:               De naam van een bestaande speler aanpassen.
+- Speler verwijderen:            Een speler zonder gespeelde potjes verwijderen.
 
 Spel functies
 - Potje registreren:              Een bordspel, speeldatum, deelnemers en één of meer winnaars vastleggen; scores, eindposities en opmerkingen zijn optioneel.
 - Gespeelde potjes bekijken:      De speelgeschiedenis opvragen, eventueel gefilterd op bordspel, speler of datumperiode.
+- Potje wijzigen:                Opgegeven gegevens van een geregistreerd potje aanpassen.
+- Potje verwijderen:             Een potje met zijn deelnameregistraties verwijderen.
 
 Statistiek functies
 - Spelerstatistieken bekijken:    Aantal potjes, overwinningen en winstpercentage per speler opvragen.

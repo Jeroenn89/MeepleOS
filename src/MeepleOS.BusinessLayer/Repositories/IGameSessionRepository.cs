@@ -9,4 +9,8 @@ public interface IGameSessionRepository
     Task<GameSessionResult> AddAsync(int boardGameId, DateOnly playedAt, string? notes,
         IReadOnlyList<SessionPlayerInput> players, IReadOnlySet<int> winnerPlayerIds);
     Task<List<GameSessionResult>> GetAllAsync(int? boardGameId, int? playerId, DateOnly? from, DateOnly? to);
+    Task<GameSessionResult?> GetByIdAsync(int id);
+    Task<GameSessionResult?> UpdateAsync(int id, int boardGameId, DateOnly playedAt, string? notes,
+        IReadOnlyList<SessionPlayerInput> players, IReadOnlySet<int> winnerPlayerIds);
+    Task<bool> DeleteAsync(int id);
 }

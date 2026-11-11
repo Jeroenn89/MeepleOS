@@ -1,4 +1,6 @@
 using MeepleOS.BusinessLayer.Repositories;
+using System.Globalization;
+using System.Text.Json;
 
 namespace MeepleOS.BusinessLayer.Services;
 
@@ -14,6 +16,109 @@ public sealed class GameSessionService(IGameSessionRepository sessions)
 {
     public async Task<GameSessionResult> RecordAsync(int boardGameId, DateOnly playedAt,
         IReadOnlyList<SessionPlayerInput> players, IReadOnlyCollection<int> winnerPlayerIds, string? notes = null)
+    {
+        await ValidateAsync(boardGameId, playedAt, players, winnerPlayerIds);
+        notes = string.IsNullOrWhiteSpace(notes) ? null : notes.Trim();
+        return await sessions.AddAsync(boardGameId, playedAt, notes, players, winnerPlayerIds.ToHashSet());
+    }
+
+    public async Task<GameSessionResult> UpdateAsync(int id, JsonElement changes)
+    {
+        if (id < 1) throw new ArgumentException("Geef een geldig potje-ID op.", nameof(id));
+        var current = await sessions.GetByIdAsync(id)
+            ?? throw new ArgumentException("Het potje bestaat niet.", nameof(id));
+        if (changes.ValueKind != JsonValueKind.Object)
+            throw new ArgumentException("Geef wijzigingen als object op.", nameof(changes));
+
+        var boardGameId = current.BoardGameId;
+        var playedAt = current.PlayedAt;
+        var notes = current.Notes;
+        var players = current.Players.Select(x => new SessionPlayerInput(x.PlayerId, x.Score, x.Position)).ToList();
+        var winners = current.Players.Where(x => x.IsWinner).Select(x => x.PlayerId).ToList();
+        var hasPlayers = changes.TryGetProperty("players", out _);
+        var hasPlayerChanges = changes.TryGetProperty("playerChanges", out _);
+        if (hasPlayers && hasPlayerChanges)
+            throw new ArgumentException("Gebruik players of playerChanges, niet allebei.", nameof(changes));
+
+        foreach (var property in changes.EnumerateObject())
+        {
+            switch (property.Name)
+            {
+                case "boardGameId": boardGameId = ReadInt(property.Value, property.Name); break;
+                case "playedAt":
+                    if (property.Value.ValueKind != JsonValueKind.String ||
+                        !DateOnly.TryParseExact(property.Value.GetString(), "yyyy-MM-dd", CultureInfo.InvariantCulture,
+                            DateTimeStyles.None, out playedAt))
+                        throw new ArgumentException("Geef een speeldatum als YYYY-MM-DD op.", nameof(changes));
+                    break;
+                case "notes":
+                    notes = property.Value.ValueKind == JsonValueKind.Null ? null
+                        : property.Value.ValueKind == JsonValueKind.String ? property.Value.GetString()
+                        : throw new ArgumentException("Opmerkingen moeten tekst of null zijn.", nameof(changes));
+                    break;
+                case "players":
+                    if (property.Value.ValueKind != JsonValueKind.Array)
+                        throw new ArgumentException("Geef deelnemers als lijst op.", nameof(changes));
+                    try { players = JsonSerializer.Deserialize<List<SessionPlayerInput>>(property.Value.GetRawText(),
+                        new JsonSerializerOptions(JsonSerializerDefaults.Web)) ?? []; }
+                    catch (JsonException ex) { throw new ArgumentException("De deelnemerslijst is ongeldig.", nameof(changes), ex); }
+                    break;
+                case "winnerPlayerIds":
+                    if (property.Value.ValueKind != JsonValueKind.Array)
+                        throw new ArgumentException("Geef winnaars als lijst op.", nameof(changes));
+                    winners = property.Value.EnumerateArray().Select(x => ReadInt(x, "winnerPlayerIds")).ToList();
+                    break;
+                case "playerChanges":
+                    if (property.Value.ValueKind != JsonValueKind.Array)
+                        throw new ArgumentException("Geef spelerwijzigingen als lijst op.", nameof(changes));
+                    var changedIds = new HashSet<int>();
+                    foreach (var change in property.Value.EnumerateArray())
+                    {
+                        if (change.ValueKind != JsonValueKind.Object || !change.TryGetProperty("playerId", out var playerIdValue))
+                            throw new ArgumentException("Elke spelerwijziging vereist een playerId.", nameof(changes));
+                        var playerId = ReadInt(playerIdValue, "playerId");
+                        if (!changedIds.Add(playerId))
+                            throw new ArgumentException("Een deelnemer mag maar eenmaal worden gewijzigd.", nameof(changes));
+                        var index = players.FindIndex(x => x.PlayerId == playerId);
+                        if (index < 0) throw new ArgumentException("De gewijzigde speler neemt niet deel aan dit potje.", nameof(changes));
+                        var score = players[index].Score;
+                        var position = players[index].Position;
+                        foreach (var field in change.EnumerateObject())
+                        {
+                            if (field.Name == "score") score = ReadNullableInt(field.Value, "score");
+                            else if (field.Name == "position") position = ReadNullableInt(field.Value, "position");
+                            else if (field.Name != "playerId") throw new ArgumentException($"Onbekend spelerveld: {field.Name}.", nameof(changes));
+                        }
+                        players[index] = new(playerId, score, position);
+                    }
+                    break;
+                default: throw new ArgumentException($"Onbekend wijzigingsveld: {property.Name}.", nameof(changes));
+            }
+        }
+
+        await ValidateAsync(boardGameId, playedAt, players, winners);
+        notes = string.IsNullOrWhiteSpace(notes) ? null : notes.Trim();
+        return await sessions.UpdateAsync(id, boardGameId, playedAt, notes, players, winners.ToHashSet())
+            ?? throw new ArgumentException("Het potje bestaat niet meer.", nameof(id));
+    }
+
+    public async Task<bool> DeleteAsync(int id)
+    {
+        if (id < 1) throw new ArgumentException("Geef een geldig potje-ID op.", nameof(id));
+        if (!await sessions.DeleteAsync(id))
+            throw new ArgumentException("Het potje bestaat niet.", nameof(id));
+        return true;
+    }
+
+    private static int ReadInt(JsonElement value, string field) =>
+        value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var result)
+            ? result : throw new ArgumentException($"{field} moet een geheel getal zijn.");
+
+    private static int? ReadNullableInt(JsonElement value, string field) =>
+        value.ValueKind == JsonValueKind.Null ? null : ReadInt(value, field);
+
+    private async Task ValidateAsync(int boardGameId, DateOnly playedAt,
+        IReadOnlyList<SessionPlayerInput> players, IReadOnlyCollection<int> winnerPlayerIds)
     {
         if (boardGameId < 1)
             throw new ArgumentException("Selecteer een geldig bordspel.", nameof(boardGameId));
@@ -51,8 +156,6 @@ public sealed class GameSessionService(IGameSessionRepository sessions)
         if (!playerIds.IsSubsetOf(existingPlayerIds))
             throw new ArgumentException("Een of meer deelnemers bestaan niet.", nameof(players));
 
-        notes = string.IsNullOrWhiteSpace(notes) ? null : notes.Trim();
-        return await sessions.AddAsync(boardGameId, playedAt, notes, players, winners);
     }
 
     public Task<List<GameSessionResult>> GetAllAsync(int? boardGameId = null, int? playerId = null,

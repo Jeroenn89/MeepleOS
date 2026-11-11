@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Text.Json;
 using MeepleOS.BusinessLayer.Services;
 using ModelContextProtocol.Server;
 
@@ -17,4 +18,13 @@ public sealed class GameSessionTools(GameSessionService sessions)
     public Task<List<GameSessionResult>> GetGameSessions(int? boardGameId = null, int? playerId = null,
         DateOnly? from = null, DateOnly? to = null) =>
         sessions.GetAllAsync(boardGameId, playerId, from, to);
+
+    [McpServerTool(Name = "update_game_session"),
+     Description("Wijzig een potje. Geef alleen te wijzigen velden in changes op; null wist notes, score of position. Gebruik players om deelnemers te vervangen of playerChanges om scores en posities per deelnemer te wijzigen.")]
+    public Task<GameSessionResult> UpdateGameSession(int id, JsonElement changes) =>
+        sessions.UpdateAsync(id, changes);
+
+    [McpServerTool(Name = "delete_game_session", Destructive = true),
+     Description("VERWIJDER een gespeeld potje definitief, inclusief deelnameregistraties. Vraag vooraf bevestiging.")]
+    public Task<bool> DeleteGameSession(int id) => sessions.DeleteAsync(id);
 }

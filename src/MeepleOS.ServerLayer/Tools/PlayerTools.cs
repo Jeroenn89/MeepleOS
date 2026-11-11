@@ -12,4 +12,11 @@ public sealed class PlayerTools(PlayerService players)
 
     [McpServerTool(Name = "get_players"), Description("Haal alle geregistreerde spelers op.")]
     public Task<List<PlayerResult>> GetPlayers() => players.GetAllAsync();
+
+    [McpServerTool(Name = "update_player"), Description("Wijzig de naam van een bestaande speler.")]
+    public Task<PlayerResult> UpdatePlayer(int id, string name) => players.UpdateAsync(id, name);
+
+    [McpServerTool(Name = "delete_player", Destructive = true),
+     Description("VERWIJDER een speler definitief. Vraag vooraf bevestiging. Spelers in gespeelde potjes kunnen niet worden verwijderd.")]
+    public Task<bool> DeletePlayer(int id) => players.DeleteAsync(id);
 }

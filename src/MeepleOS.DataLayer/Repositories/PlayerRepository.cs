@@ -37,4 +37,56 @@ public sealed class PlayerRepository(IDbContextFactory<MeepleDbContext> dbFactor
         return await db.Players.AsNoTracking().OrderBy(x => x.Name)
             .Select(x => new PlayerResult(x.Id, x.Name)).ToListAsync();
     }
+
+    public async Task<PlayerResult?> GetByIdAsync(int id)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync();
+        return await db.Players.AsNoTracking().Where(x => x.Id == id)
+            .Select(x => new PlayerResult(x.Id, x.Name)).SingleOrDefaultAsync();
+    }
+
+    public async Task<bool> NameExistsAsync(string normalizedName, int exceptId)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync();
+        return await db.Players.AnyAsync(x => x.NormalizedName == normalizedName && x.Id != exceptId);
+    }
+
+    public async Task<PlayerResult?> UpdateAsync(int id, string name, string normalizedName)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync();
+        var player = await db.Players.FindAsync(id);
+        if (player is null) return null;
+        if (await db.Players.AnyAsync(x => x.NormalizedName == normalizedName && x.Id != id))
+            throw new ArgumentException("Er bestaat al een speler met deze naam.", nameof(name));
+        player.Name = name;
+        player.NormalizedName = normalizedName;
+        try { await db.SaveChangesAsync(); }
+        catch (DbUpdateException ex)
+        {
+            throw new ArgumentException("Er bestaat al een speler met deze naam.", nameof(name), ex);
+        }
+        return new(player.Id, player.Name);
+    }
+
+    public async Task<bool> HasSessionsAsync(int id)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync();
+        return await db.SessionPlayers.AnyAsync(x => x.PlayerId == id);
+    }
+
+    public async Task<bool> DeleteAsync(int id)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync();
+        var player = await db.Players.FindAsync(id);
+        if (player is null) return false;
+        if (await db.SessionPlayers.AnyAsync(x => x.PlayerId == id))
+            throw new InvalidOperationException("Deze speler kan niet worden verwijderd: de speler komt voor in gespeelde potjes.");
+        db.Players.Remove(player);
+        try { await db.SaveChangesAsync(); }
+        catch (DbUpdateException ex)
+        {
+            throw new InvalidOperationException("Deze speler kan niet worden verwijderd: de speler komt voor in gespeelde potjes.", ex);
+        }
+        return true;
+    }
 }
