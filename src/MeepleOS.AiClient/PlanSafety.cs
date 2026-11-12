@@ -23,7 +23,16 @@ internal static class PlanSafety
         @"\b(?:geen vast maximum|zonder vast maximum|onbeperkt aantal spelers)\b",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
-    public static Plan Prepare(Plan plan, Catalog catalog, string command, bool readOnly)
+    public static bool NeedsGameFacts(string command)
+    {
+        var range = PlayerRange.Match(command);
+        return !(range.Success || ReadNumber(Minimum, command).HasValue)
+            || !(range.Success || ReadNumber(Maximum, command).HasValue || NoMaximum.IsMatch(command))
+            || !ReadNumber(Duration, command).HasValue;
+    }
+
+    public static Plan Prepare(Plan plan, Catalog catalog, string command, bool readOnly,
+        IReadOnlyList<GameSearchHit>? searchHits = null)
     {
         if (readOnly || plan.Actions is null)
             return plan;
@@ -50,7 +59,7 @@ internal static class PlanSafety
                     break;
 
                 case "add_boardgame":
-                    AddBoardgame(action.Name, command, games, prepared);
+                    AddBoardgame(action.Name, command, games, prepared, action, searchHits);
                     break;
 
                 case "add_expansion":
@@ -187,7 +196,8 @@ internal static class PlanSafety
         return [name];
     }
 
-    private static void AddBoardgame(string? name, string command, HashSet<string> games, List<ActionPlan> prepared)
+    private static void AddBoardgame(string? name, string command, HashSet<string> games, List<ActionPlan> prepared,
+        ActionPlan? proposed = null, IReadOnlyList<GameSearchHit>? searchHits = null)
     {
         if (!string.IsNullOrWhiteSpace(name) && games.Contains(name))
             return;
@@ -199,6 +209,13 @@ internal static class PlanSafety
         var maximum = range.Success ? int.Parse(range.Groups["max"].Value) : ReadNumber(Maximum, command);
         var noMaximum = NoMaximum.IsMatch(command);
         var minutes = ReadNumber(Duration, command);
+
+        if (searchHits is { Count: > 0 } && proposed is not null)
+        {
+            if (minimum is null && proposed.MinPlayers is { } min && GameSearchEvidence.Supports(searchHits, min, false)) minimum = min;
+            if (maximum is null && proposed.MaxPlayers is { } max && GameSearchEvidence.Supports(searchHits, max, false)) maximum = max;
+            if (minutes is null && proposed.EstimatedMinutes is { } time && GameSearchEvidence.Supports(searchHits, time, true)) minutes = time;
+        }
 
         if (noMaximum && maximum.HasValue)
             throw new ClarificationNeededException($"Heeft {name} een maximumaantal spelers of geen vast maximum?");

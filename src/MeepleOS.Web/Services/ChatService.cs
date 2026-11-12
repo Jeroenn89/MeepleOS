@@ -17,7 +17,10 @@ public sealed class ChatService(WebOptions options, IHttpClientFactory httpFacto
             http.Timeout = TimeSpan.FromSeconds(60);
             var ledger = new RequestLedger(Path.Combine(options.Root, "data", "gemini-requests.json"), 15, 500);
             var planner = new GeminiPlanner(http, key, ledger: ledger);
-            var processor = new CommandProcessor(tools, planner, pendingCommand: pendingCommand);
+            using var searchHttp = httpFactory.CreateClient();
+            searchHttp.Timeout = TimeSpan.FromSeconds(20);
+            var search = new TavilyGameSearch(searchHttp, Environment.GetEnvironmentVariable("TAVILY_API_KEY") ?? "");
+            var processor = new CommandProcessor(tools, planner, pendingCommand: pendingCommand, gameSearch: search);
             var zone = TimeZoneInfo.FindSystemTimeZoneById("Europe/Amsterdam");
             var today = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, zone).DateTime);
             var result = await processor.RunAsync(command, today);

@@ -180,6 +180,65 @@ using (var http = new HttpClient(new LimitHandler()))
     try { await gemini.PlanAsync("test", new Catalog([], [], []), new DateOnly(2026, 11, 11)); throw new Exception("HTTP 429 had moeten stoppen."); }
     catch (InvalidOperationException ex) when (ex.Message.Contains("429") && gemini.RequestCount == 1) { passed++; }
 }
+{
+    var search = new FakeGameSearch(new GameSearchHit("FreakyTown | Publisher", "https://publisher.example/freakytown",
+        "FreakyTown is for 2-4 players. Playing time: 45 minutes."));
+    var firstPlan = new Plan { Actions = [Session("FreakyTown", ["Jeroen", "Pallas"], ["Jeroen"])] };
+    var sourcedPlan = new Plan { Actions = [new ActionPlan { Kind = "add_boardgame", Name = "FreakyTown", MinPlayers = 2, MaxPlayers = 4, EstimatedMinutes = 45 }, Session("FreakyTown", ["Jeroen", "Pallas"], ["Jeroen"])] };
+    var planner = new SequencePlanner(firstPlan, sourcedPlan);
+    var tools = new FakeTools();
+    var result = await new CommandProcessor(tools, planner, gameSearch: search)
+        .RunAsync("Ik speelde FreakyTown met Pallas; ik won.", new DateOnly(2026, 11, 11));
+    if (search.Calls != 1 || planner.RequestCount != 2 || result.GeminiRequests != 2
+        || !tools.Calls.Contains("add_boardgame") || !tools.Calls.Contains("record_game_session")
+        || !result.Message.Contains("Winnaar(s): Jeroen")) throw new Exception($"Tavily-verrijking mislukt: {result.Message}");
+    passed++;
+}
+{
+    var search = new FakeGameSearch(new GameSearchHit("FreakyTown", "https://publisher.example/freakytown",
+        "FreakyTown is for 2-4 players. Playing time: 45 minutes."));
+    var planner = new SequencePlanner(new Plan { Actions = [new ActionPlan { Kind = "add_boardgame", Name = "FreakyTown", MinPlayers = 2, MaxPlayers = 4, EstimatedMinutes = 45 }] });
+    var tools = new FakeTools();
+    var result = await new CommandProcessor(tools, planner, gameSearch: search)
+        .RunAsync("Voeg bordspel FreakyTown toe: 2-4 spelers, 45 minuten.", new DateOnly(2026, 11, 11));
+    if (search.Calls != 0 || planner.RequestCount != 1 || !tools.Calls.Contains("add_boardgame"))
+        throw new Exception($"Gebruikersgegevens zijn niet hergebruikt: {result.Message}");
+    passed++;
+}
+{
+    var search = new FakeGameSearch(new GameSearchHit("FreakyTown", "https://publisher.example/freakytown",
+        "FreakyTown is for 2-4 players. Playing time is unknown."));
+    var planner = new SequencePlanner(
+        new Plan { Actions = [new ActionPlan { Kind = "add_boardgame", Name = "FreakyTown" }] },
+        new Plan { Actions = [new ActionPlan { Kind = "add_boardgame", Name = "FreakyTown", MinPlayers = 2, MaxPlayers = 4, EstimatedMinutes = 45 }] });
+    var tools = new FakeTools();
+    var result = await new CommandProcessor(tools, planner, gameSearch: search)
+        .RunAsync("Voeg bordspel FreakyTown toe.", new DateOnly(2026, 11, 11));
+    if (!result.Message.Contains("speelduur") || tools.Calls.Contains("add_boardgame"))
+        throw new Exception($"Onbevestigde speelduur is opgeslagen: {result.Message}");
+    passed++;
+}
+{
+    var search = new FakeGameSearch();
+    var planner = new SequencePlanner(new Plan { Actions = [Session("Carcassonne", ["Jeroen", "Pallas"], ["Jeroen"])] });
+    await new CommandProcessor(new FakeTools(), planner, gameSearch: search)
+        .RunAsync("Ik speelde Carcassonne met Pallas; ik won.", new DateOnly(2026, 11, 11));
+    if (search.Calls != 0 || planner.RequestCount != 1) throw new Exception("Bestaand spel veroorzaakte online zoekactie.");
+    passed++;
+}
+{
+    var handler = new TavilyHandler();
+    using var http = new HttpClient(handler);
+    var search = new TavilyGameSearch(http, "mock-key");
+    var hits = await search.SearchAsync("FreakyTown");
+    if (handler.Calls != 1 || hits.Count != 1) throw new Exception("Tavily basic Search gaf onverwacht resultaat.");
+    await new TavilyGameSearch(http, "").SearchAsync("FreakyTown");
+    if (handler.Calls != 1) throw new Exception("Ontbrekende Tavily-sleutel veroorzaakte een verzoek.");
+    handler.TooManyRequests = true;
+    if ((await search.SearchAsync("FreakyTown")).Count != 0 || handler.Calls != 2)
+        throw new Exception("Tavily-limiet veroorzaakte een herhaling of betaalde fallback.");
+    passed++;
+}
 var root = Directory.GetCurrentDirectory();
 var testDirectory = Path.Combine(root, ".tmp-ai-client-tests");
 Directory.CreateDirectory(testDirectory);
@@ -363,6 +422,40 @@ sealed class LimitHandler : HttpMessageHandler
 {
     protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
         Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.TooManyRequests));
+}
+
+sealed class FakeGameSearch(params GameSearchHit[] hits) : IGameSearch
+{
+    public int Calls { get; private set; }
+    public Task<IReadOnlyList<GameSearchHit>> SearchAsync(string game, CancellationToken ct = default)
+    {
+        Calls++;
+        return Task.FromResult<IReadOnlyList<GameSearchHit>>(hits);
+    }
+}
+
+sealed class TavilyHandler : HttpMessageHandler
+{
+    public int Calls { get; private set; }
+    public bool TooManyRequests { get; set; }
+    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        Calls++;
+        if (request.RequestUri?.AbsoluteUri != "https://api.tavily.com/search"
+            || request.Headers.Authorization?.Scheme != "Bearer"
+            || request.Headers.Authorization.Parameter != "mock-key") throw new Exception("Onjuist Tavily-endpoint of authenticatie.");
+        using var body = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(cancellationToken));
+        if (body.RootElement.GetProperty("search_depth").GetString() != "basic"
+            || body.RootElement.GetProperty("include_answer").GetBoolean()
+            || body.RootElement.GetProperty("include_raw_content").GetBoolean()
+            || body.RootElement.GetProperty("auto_parameters").GetBoolean())
+            throw new Exception("Tavily gebruikt meer dan de gratis basic Search-functie.");
+        if (TooManyRequests) return new HttpResponseMessage(System.Net.HttpStatusCode.TooManyRequests);
+        return new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+        {
+            Content = new StringContent("{\"results\":[{\"title\":\"FreakyTown\",\"url\":\"https://publisher.example/freakytown\",\"content\":\"FreakyTown 2-4 players, 45 minutes\"}]}")
+        };
+    }
 }
 
 sealed class PlanHandler : HttpMessageHandler
