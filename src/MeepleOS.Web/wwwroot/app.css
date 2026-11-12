@@ -319,6 +319,37 @@ button:hover,.button:hover {
     background: #d8ebdf;
 }
 
+.chat-loading {
+    display: flex;
+    align-items: center;
+    gap: .65rem;
+    width: fit-content;
+    max-width: 100%;
+    padding: .8rem;
+    border-radius: .7rem;
+    background: #e8efe7;
+    color: #205f50;
+    overflow-wrap: anywhere;
+}
+
+.chat-spinner {
+    flex: none;
+    width: 1.15rem;
+    height: 1.15rem;
+    border: 2px solid #b9cbbf;
+    border-top-color: #205f50;
+    border-radius: 50%;
+    animation: chat-spin .8s linear infinite;
+}
+
+@keyframes chat-spin {
+    to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .chat-spinner { animation: none; }
+}
+
 .chat-form {
     display: grid;
     gap: .5rem;

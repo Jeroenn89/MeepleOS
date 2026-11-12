@@ -37,7 +37,7 @@ public partial class Chat
 
     private async Task Confirm()
     {
-        if (pending is null)
+        if (pending is null || busy)
             return;
 
         var command = pending;
@@ -53,9 +53,15 @@ public partial class Chat
     private async Task Execute(string command)
     {
         busy = true;
+        StateHasChanged();
+        await Task.Yield();
         try
         {
             messages.Add((false, await ChatService.AskAsync(command)));
+        }
+        catch (Exception)
+        {
+            messages.Add((false, "Er is iets misgegaan. Probeer het opnieuw."));
         }
         finally
         {

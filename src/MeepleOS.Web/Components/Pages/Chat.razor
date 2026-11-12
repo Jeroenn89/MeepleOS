@@ -10,6 +10,13 @@
             <b>@(m.User?"Jij":"MeepleOS")</b>
             <br>@m.Text</p>
     }
+    @if (busy)
+    {
+        <div class="chat-loading" role="status" aria-label="MeepleOS is aan het nadenken...">
+            <span class="chat-spinner" aria-hidden="true"></span>
+            <span>MeepleOS is aan het nadenken...</span>
+        </div>
+    }
 </div>
 @if(pending is not null)
 {
@@ -17,7 +24,7 @@
         <p>Bevestig deze ingrijpende opdracht voordat ik hem uitvoer:</p>
         <blockquote>@pending</blockquote>
         <button class="danger" disabled="@busy" @onclick="Confirm">Bevestig en voer uit</button>
-        <button class="secondary" @onclick="Cancel">Annuleren</button>
+        <button class="secondary" disabled="@busy" @onclick="Cancel">Annuleren</button>
     </div>
 }
 <div class="chat-form">
