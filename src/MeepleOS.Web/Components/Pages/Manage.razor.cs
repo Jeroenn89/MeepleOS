@@ -37,6 +37,9 @@ public partial class Manage
     private string error = "";
     private string? deleteKind;
     private int deleteId;
+    private int openSection;
+
+    private void OpenSection(int section) => openSection = openSection == section ? -1 : section;
 
     protected override async Task OnInitializedAsync() => await Reload();
 

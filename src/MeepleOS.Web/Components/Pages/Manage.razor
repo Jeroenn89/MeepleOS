@@ -14,8 +14,8 @@
 {
     <p class="error">@error</p>
 }
-<details class="card" open>
-    <summary>Bordspel toevoegen of wijzigen</summary>
+<details class="card" open="@(openSection == 0)">
+    <summary @onclick="() => OpenSection(0)" @onclick:preventDefault="true">Bordspel toevoegen of wijzigen</summary>
     <div class="form-grid">
         <label>
             Bestaand bordspel
@@ -53,8 +53,8 @@
         }
     </div>
 </details>
-<details class="card">
-    <summary>Uitbreiding toevoegen of wijzigen</summary>
+<details class="card" open="@(openSection == 1)">
+    <summary @onclick="() => OpenSection(1)" @onclick:preventDefault="true">Uitbreiding toevoegen of wijzigen</summary>
     <div class="form-grid">
         <label>
             Bestaande uitbreiding
@@ -93,8 +93,8 @@
         }
     </div>
 </details>
-<details class="card">
-    <summary>Speler toevoegen of wijzigen</summary>
+<details class="card" open="@(openSection == 2)">
+    <summary @onclick="() => OpenSection(2)" @onclick:preventDefault="true">Speler toevoegen of wijzigen</summary>
     <div class="form-grid">
         <label>
             Bestaande speler
@@ -120,8 +120,8 @@
         }
     </div>
 </details>
-<details class="card" open>
-    <summary>Potje toevoegen of wijzigen</summary>
+<details class="card" open="@(openSection == 3)">
+    <summary @onclick="() => OpenSection(3)" @onclick:preventDefault="true">Potje toevoegen of wijzigen</summary>
     <div class="form-grid">
         <label>
             Bestaand potje

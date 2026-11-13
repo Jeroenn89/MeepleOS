@@ -10,7 +10,9 @@ public sealed class CommandProcessor(IMeepleTools tools, IPlanner planner, bool 
     IReadOnlyCollection<int>? rejectedBggIds = null)
 {
     private static readonly Regex NewRequest = new(
-        @"^\s*(?:ik\s+(?:speelde\b|heb\b[^\r\n.!?;]*\bgespeeld\b)|(?:toon|geef|welke|wat|wie|hoeveel|registreer|voeg|verwijder|wijzig|hernoem)\b)|\b(?:registreren|registreer|gespeeld|speelde)\b",
+        @"^\s*(?:ik\s+(?:speelde\b|heb\b[^\r\n.!?;]*\bgespeeld\b)|(?:toon|geef|welke|wat|wie|hoeveel|staat|vertel|registreer|voeg|verwijder|wijzig|hernoem)\b)|\b(?:registreren|registreer|gespeeld|speelde)\b",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex RetryRequest = new(@"^\s*(?:probeer|proberen|opnieuw|herhaal|ga\s+verder|verder)\b",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex BoardgameQuestion = new(
         @"\b(?:welk|welke|wat)\b[^?\r\n]*\b(?:bordspel|spel|editie)\b|\b(?:bordspel|spel|editie)\b[^?\r\n]*\bbedoel\b",
@@ -44,7 +46,8 @@ public sealed class CommandProcessor(IMeepleTools tools, IPlanner planner, bool 
             return new CommandResult("Opdracht geannuleerd; niets opgeslagen.", 0);
         }
 
-        if (PendingCommand is not null && NewRequest.IsMatch(command))
+        if (PendingCommand is not null && (NewRequest.IsMatch(command)
+            || PendingQuestion is null && !RetryRequest.IsMatch(command)))
         {
             onTrace?.Invoke("Nieuwe opdracht vervangt de lopende registratie.");
             PendingCommand = null;
@@ -335,6 +338,8 @@ public sealed class CommandProcessor(IMeepleTools tools, IPlanner planner, bool 
             PendingChoices = [];
             PendingSearchName = null;
             RejectedBggIds = [];
+            if (plan.Actions.Count > 0 && plan.Actions.All(action => ReadKinds.Contains(action.Kind)))
+                return new CommandResult(await ReadAnswer.AnswerAsync(fullCommand, plan.Actions, catalog, tools, ct), count);
             foreach (var action in plan.Actions)
             {
                 var message = await Execute(action, catalog, ct);
@@ -358,8 +363,16 @@ public sealed class CommandProcessor(IMeepleTools tools, IPlanner planner, bool 
         {
             onError?.Invoke(ex);
             if (ex is GameSearchUnavailableException) onTrace?.Invoke($"Tavily-aanroep mislukt: {ex.Message}");
-            if (completed.Count == 0 || fullCommand.Contains("gespeeld", StringComparison.OrdinalIgnoreCase))
+            if (RegistrationIntent.IsMatch(fullCommand) && (completed.Count == 0 || fullCommand.Contains("gespeeld", StringComparison.OrdinalIgnoreCase)))
                 PendingCommand = fullCommand;
+            else if (completed.Count == 0)
+            {
+                PendingCommand = null;
+                PendingQuestion = null;
+                PendingChoices = [];
+                PendingSearchName = null;
+                RejectedBggIds = [];
+            }
             var count = (planner as IRequestCounter)?.RequestCount - countBefore ?? 1;
             var prefix = completed.Count == 0 ? "" : $"Wel opgeslagen: {string.Join("; ", completed)}{Environment.NewLine}Niet voltooid: ";
             var message = ex.Message.StartsWith("MCP ", StringComparison.Ordinal) ? "De MCP-server kon de opdracht niet afronden. Probeer het opnieuw." : ex.Message;
@@ -517,9 +530,9 @@ public sealed class CommandProcessor(IMeepleTools tools, IPlanner planner, bool 
                 }
                 await tools.CallAsync("record_game_session", new { boardGameId = boardgame.Id, playedAt = a.PlayedAt, players = participants, winnerPlayerIds = winners, expansionIds, notes = a.Notes }, ct);
                 return $"Potje {boardgame.Name} geregistreerd: {string.Join(", ", a.Players.Select(p => p.Name))}. Winnaar(s): {string.Join(", ", a.Winners)}.";
-            case "get_sessions": return (await tools.CallAsync("get_game_sessions", ct: ct)).ToString();
+            case "get_sessions": return await ReadAnswer.AnswerAsync("Toon potjes", [a], catalog, tools, ct);
             case "get_player_statistics": case "get_boardgame_statistics": case "get_leaderboard": case "get_play_statistics":
-                return (await tools.CallAsync(a.Kind, ct: ct)).ToString();
+                return await ReadAnswer.AnswerAsync("Toon statistieken", [a], catalog, tools, ct);
             default:
                 var tool = a.Kind.Replace("_expansion", "_game_expansion").Replace("_session", "_game_session");
                 object args = a.Kind == "update_player" ? new { id = a.Id, name = a.Name } : a.Kind.StartsWith("update_") ? new { id = a.Id, changes = JsonDocument.Parse(a.ChangesJson!).RootElement } : new { id = a.Id };

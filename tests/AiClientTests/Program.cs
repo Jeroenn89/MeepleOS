@@ -27,6 +27,16 @@ if (args.Contains("--clarification-tests", StringComparer.OrdinalIgnoreCase))
     await RunClarificationTests();
     return;
 }
+if (args.Contains("--read-tests", StringComparer.OrdinalIgnoreCase))
+{
+    await RunReadTests();
+    return;
+}
+if (args.Contains("--gemini-recovery-tests", StringComparer.OrdinalIgnoreCase))
+{
+    await RunGeminiRecoveryTests();
+    return;
+}
 
 var passed = 0;
 {
@@ -1405,6 +1415,112 @@ async Task RunSourceTests(bool includeMcp)
     Console.WriteLine($"{count} gerichte brontests geslaagd; geen productiedatabase of echte API-verzoeken.");
 }
 
+async Task RunReadTests()
+{
+    var cases = new (string Question, string Kind, string[] Expected, string[] Excluded)[]
+    {
+        ("Wat zijn mijn top 3 meest gespeelde bordspellen?", "get_play_statistics",
+            ["Paku Paku (3", "El Dorado (2", "Carcassonne (1"], ["{" ]),
+        ("Welke 3 spelers hebben de meeste potjes gespeeld?", "get_leaderboard",
+            ["Jeroen (6", "Pallas (5", "Roan (3"], ["Wim (2", "{" ]),
+        ("Wie heeft het vaakst gewonnen?", "get_leaderboard",
+            ["Pallas (5 overwinningen)"], ["Jeroen (", "{" ]),
+        ("Hoeveel potjes El Dorado heb ik gespeeld en wie heeft het vaakst gewonnen?", "get_sessions",
+            ["Je hebt 2 potjes", "Pallas (2 overwinningen)"], ["{" ]),
+        ("Staat pacu pacu al in mijn collectie?", "get_boardgames",
+            ["Ja, Paku Paku staat in je collectie."], ["Carcassonne", "{" ]),
+        ("Van welk bordspel hebben we de meeste potjes geregistreerd?", "get_boardgame_statistics",
+            ["Paku Paku (3 potjes)"], ["El Dorado (", "Carcassonne (", "{" ]),
+        ("Wat is het winpercentage van Pallas?", "get_player_statistics",
+            ["Pallas", "61,5%", "8 overwinningen uit 13 potjes"], ["Jeroen", "{" ]),
+        ("Hoeveel bordspellen staan er in mijn collectie?", "get_boardgames",
+            ["15 bordspellen"], ["Carcassonne", "{" ])
+    };
+    foreach (var (question, kind, expected, excluded) in cases)
+    {
+        var tools = new ReadTestTools(fullCollection: true);
+        var planner = new SequencePlanner(new Plan { Actions = [new() { Kind = kind }] });
+        var answer = await new CommandProcessor(tools, planner).RunAsync(question, new DateOnly(2026, 11, 13));
+        if (expected.Any(text => !answer.Message.Contains(text, StringComparison.Ordinal))
+            || excluded.Any(text => answer.Message.Contains(text, StringComparison.Ordinal))
+            || planner.RequestCount != 1)
+            throw new Exception($"Leesvraag mislukt: {question}: {answer.Message}");
+    }
+    var tieTools = new ReadTestTools(tieAtThird: true);
+    var tieAnswer = await new CommandProcessor(tieTools,
+        new SequencePlanner(new Plan { Actions = [new() { Kind = "get_leaderboard" }] }))
+        .RunAsync("Welke 3 spelers hebben de meeste potjes gespeeld?", new DateOnly(2026, 11, 13));
+    if (!tieAnswer.Message.Contains("Roan (3 potjes)") || !tieAnswer.Message.Contains("Wim (3 potjes)"))
+        throw new Exception($"Gelijke stand op derde plaats ontbreekt: {tieAnswer.Message}");
+    var totalsTools = new ReadTestTools(distinguishTotals: true);
+    foreach (var (question, expected) in new[]
+    {
+        ("Hoeveel potjes El Dorado heb ik gespeeld?", "Je hebt 3 potjes De Zoektocht naar El Dorado gespeeld."),
+        ("Hoeveel potjes El Dorado zijn er geregistreerd?", "Er zijn 5 potjes De Zoektocht naar El Dorado gespeeld.")
+    })
+    {
+        var answer = await new CommandProcessor(totalsTools,
+            new SequencePlanner(new Plan { Actions = [new() { Kind = "get_sessions" }] }))
+            .RunAsync(question, new DateOnly(2026, 11, 13));
+        if (!answer.Message.Contains(expected)) throw new Exception($"Persoonlijk/totaal mislukt: {answer.Message}");
+    }
+    var personalTop = await new CommandProcessor(totalsTools,
+        new SequencePlanner(new Plan { Actions = [new() { Kind = "get_play_statistics" }] }))
+        .RunAsync("Wat zijn mijn top 3 meest gespeelde bordspellen?", new DateOnly(2026, 11, 13));
+    if (!personalTop.Message.Contains("El Dorado (3 potjes)")
+        || personalTop.Message.Contains("El Dorado (5 potjes)")
+        || !personalTop.Message.Contains("persoonlijke potjes"))
+        throw new Exception($"Persoonlijke top gebruikte totale potjes: {personalTop.Message}");
+    var timeoutPlanner = new TimeoutThenReadPlanner();
+    var timeoutProcessor = new CommandProcessor(new ReadTestTools(fullCollection: true), timeoutPlanner);
+    var timeout = await timeoutProcessor.RunAsync("Staat pacu pacu al in mijn collectie?", new DateOnly(2026, 11, 13));
+    var next = await timeoutProcessor.RunAsync("Hoeveel bordspellen staan er in mijn collectie?", new DateOnly(2026, 11, 13));
+    if (!timeout.Message.Contains("wachttijd") || timeoutProcessor.PendingCommand is not null
+        || timeoutPlanner.Commands[1] != "Hoeveel bordspellen staan er in mijn collectie?"
+        || !next.Message.Contains("15 bordspellen"))
+        throw new Exception($"Mislukte leesvraag bleef als context bestaan: {next.Message}");
+    Console.WriteLine($"{cases.Length + 5} gerichte leesvraagtests geslaagd.");
+}
+
+async Task RunGeminiRecoveryTests()
+{
+    var date = new DateOnly(2026, 11, 13);
+    var unavailable = new UnavailableHandler();
+    using (var http = new HttpClient(unavailable))
+    {
+        var processor = new CommandProcessor(new FakeTools(), new GeminiPlanner(http, "mock-key"));
+        var failure = await processor.RunAsync("Ik speelde Carcassonne met Pallas; Jeroen won.", date);
+        if (unavailable.Calls != 3 || failure.GeminiRequests != 3 || processor.PendingCommand is null)
+            throw new Exception("HTTP 503 had maximaal drie pogingen en een herstelbare registratie moeten geven.");
+    }
+    var timeoutHandler = new SlowHandler();
+    using (var http = new HttpClient(timeoutHandler) { Timeout = TimeSpan.FromMilliseconds(20) })
+    {
+        var processor = new CommandProcessor(new ReadTestTools(fullCollection: true), new GeminiPlanner(http, "mock-key"));
+        var failure = await processor.RunAsync("Staat pacu pacu al in mijn collectie?", date);
+        if (timeoutHandler.Calls != 1 || failure.GeminiRequests != 1 || processor.PendingCommand is not null
+            || !failure.Message.Contains("wachttijd"))
+            throw new Exception($"Gemini-timeout werd niet begrensd of liet leescontext staan: {failure.Message}");
+    }
+    var followupPlanner = new SequencePlanner(
+        new Plan { Question = "Wie heeft gewonnen?" },
+        new Plan { Actions = [Session("Carcassonne", ["Jeroen", "Pallas"], ["Pallas"])] });
+    var followupProcessor = new CommandProcessor(new FakeTools(), followupPlanner);
+    await followupProcessor.RunAsync("Ik speelde Carcassonne met Pallas vandaag.", date);
+    var followup = await followupProcessor.RunAsync("Pallas won", date);
+    if (!followupPlanner.Commands[1].Contains("Aanvullende gegevens: Pallas won")
+        || !followup.Message.Contains("geregistreerd"))
+        throw new Exception($"Echte vervolgvraag verloor de registratie: {followup.Message}");
+    var independentPlanner = new TimeoutThenReadPlanner();
+    var independentProcessor = new CommandProcessor(new ReadTestTools(fullCollection: true), independentPlanner);
+    await independentProcessor.RunAsync("Ik speelde Carcassonne met Pallas; Jeroen won.", date);
+    var independent = await independentProcessor.RunAsync("Vertel hoeveel bordspellen staan er in mijn collectie?", date);
+    if (independentPlanner.Commands[1] != "Vertel hoeveel bordspellen staan er in mijn collectie?"
+        || !independent.Message.Contains("15 bordspellen"))
+        throw new Exception($"Nieuwe vraag hergebruikte mislukte registratie: {independent.Message}");
+    Console.WriteLine("4 gerichte Gemini- en contexttests geslaagd.");
+}
+
 async Task Check(string label, Plan plan, Func<FakeTools, bool> verify, bool failRecord = false, bool limit = false, bool readOnly = false, string? command = null, bool existingSession = false)
 {
     var tools = new FakeTools { FailRecord = failRecord, ExistingSession = existingSession };
@@ -1445,6 +1561,54 @@ sealed class SequencePlanner(params Plan[] plans) : IPlanner, IRequestCounter
         Commands.Add(command);
         return Task.FromResult(remaining.Dequeue());
     }
+}
+
+sealed class TimeoutThenReadPlanner : IPlanner, IRequestCounter
+{
+    public List<string> Commands { get; } = [];
+    public int RequestCount => Commands.Count;
+    public Task<Plan> PlanAsync(string command, Catalog catalog, DateOnly today, CancellationToken ct = default)
+    {
+        Commands.Add(command);
+        return Commands.Count == 1
+            ? Task.FromException<Plan>(new InvalidOperationException("Gemini reageerde niet binnen de wachttijd."))
+            : Task.FromResult(new Plan { Actions = [new() { Kind = "get_boardgames" }] });
+    }
+}
+
+sealed class ReadTestTools(bool tieAtThird = false, bool distinguishTotals = false, bool fullCollection = false) : IMeepleTools
+{
+    private static readonly object[] Sessions =
+    [
+        Row(20, (2, false), (3, true)), Row(20, (2, false), (3, true), (6, false)),
+        Row(20, (2, false), (3, true), (6, false)), Row(10, (2, false), (3, true), (6, false)),
+        Row(10, (2, false), (3, true), (11, false)), Row(1, (2, false), (11, false))
+    ];
+
+    public Task<JsonElement> CallAsync(string tool, object? arguments = null, CancellationToken ct = default)
+    {
+        var args = arguments is null ? JsonSerializer.SerializeToElement(new { }) : JsonSerializer.SerializeToElement(arguments);
+        var boardGameId = args.TryGetProperty("boardGameId", out var id) && id.ValueKind == JsonValueKind.Number ? id.GetInt32() : (int?)null;
+        object value = tool switch
+        {
+            "get_boardgames" => new[] { new { id = 1, name = "Carcassonne" }, new { id = 10, name = "De Zoektocht naar El Dorado" }, new { id = 20, name = "Paku Paku" } }
+                .Concat(fullCollection ? Enumerable.Range(30, 12).Select(id => new { id, name = $"Testspel {id}" }) : []).ToArray(),
+            "get_players" => new[] { new { id = 2, name = "Jeroen" }, new { id = 3, name = "Pallas" }, new { id = 6, name = "Roan" }, new { id = 11, name = "Wim" } },
+            "get_game_expansions" => Array.Empty<object>(),
+            "get_game_sessions" => (tieAtThird ? Sessions.Append(Row(1, (11, true))) : Sessions)
+                .Concat(distinguishTotals ? new[] { Row(10, (2, false), (3, true)), Row(10, (3, true), (11, false)), Row(10, (3, true), (6, false)) } : [])
+                .Where(row => boardGameId is null || JsonSerializer.SerializeToElement(row).GetProperty("boardGameId").GetInt32() == boardGameId).ToArray(),
+            "get_player_statistics" => new[] { new { playerId = 3, playerName = "Pallas", plays = 13, wins = 8, winPercentage = 100.0 * 8 / 13 } },
+            _ => throw new Exception($"Onverwachte MCP-aanroep: {tool}")
+        };
+        return Task.FromResult(JsonSerializer.SerializeToElement(value));
+    }
+
+    private static object Row(int boardGameId, params (int Id, bool Win)[] players) => new
+    {
+        boardGameId,
+        players = players.Select(player => new { playerId = player.Id, isWinner = player.Win }).ToArray()
+    };
 }
 
 sealed class FakeTools : IMeepleTools
@@ -1495,6 +1659,17 @@ sealed class LimitHandler : HttpMessageHandler
 {
     protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
         Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.TooManyRequests));
+}
+
+sealed class SlowHandler : HttpMessageHandler
+{
+    public int Calls { get; private set; }
+    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        Calls++;
+        await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+        throw new Exception("Niet bereikbaar na annulering.");
+    }
 }
 
 sealed class UnavailableHandler : HttpMessageHandler
