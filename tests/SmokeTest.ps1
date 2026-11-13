@@ -54,6 +54,17 @@ try {
         $tool = $tools.tools | Where-Object { $_.name -eq $name }
         if ($tool.annotations.destructiveHint -ne $true) { throw "Destructieve annotatie ontbreekt bij $name" }
     }
+    $recordSessionTool = $tools.tools | Where-Object { $_.name -eq 'record_game_session' }
+    if (-not $recordSessionTool.inputSchema.properties.expansionIds -or
+        $recordSessionTool.description -notmatch 'uitbreiding') {
+        throw 'Optionele uitbreidingen ontbreken bij record_game_session'
+    }
+    $updateSessionTool = $tools.tools | Where-Object { $_.name -eq 'update_game_session' }
+    foreach ($field in @('expansionIds', 'expansionIdsToAdd', 'expansionIdsToRemove')) {
+        if ($updateSessionTool.description -notmatch $field) {
+            throw "Uitbreidingsveld $field ontbreekt in update_game_session beschrijving"
+        }
+    }
 
     $empty = Get-ToolData (Invoke-Mcp 25 'tools/call' @{ name = 'get_play_statistics'; arguments = @{} })
     if ($empty.totalPlays -ne 0 -or @($empty.playsByPeriod).Count -ne 0 -or @($empty.mostPlayedBoardgames).Count -ne 0) {

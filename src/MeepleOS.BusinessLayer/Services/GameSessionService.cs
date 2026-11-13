@@ -13,17 +13,34 @@ public sealed record GameSessionResult(int Id, int BoardGameId, string BoardGame
     DateOnly PlayedAt, string? Notes, List<SessionPlayerResult> Players,
     List<GameExpansionResult> Expansions);
 
+public enum ScoreWinRule { Highest, Lowest }
+
+public static class SessionWinnerResolver
+{
+    public static IReadOnlyCollection<int> Resolve(IReadOnlyList<SessionPlayerInput> players,
+        IReadOnlyCollection<int>? explicitWinners, ScoreWinRule rule = ScoreWinRule.Highest)
+    {
+        if (explicitWinners is { Count: > 0 }) return explicitWinners;
+        if (players.Count == 0 || players.Any(player => !player.Score.HasValue))
+            throw new ArgumentException("Wie heeft gewonnen? Geef een winnaar of de score van iedere deelnemer op.", nameof(explicitWinners));
+        var winningScore = rule == ScoreWinRule.Lowest
+            ? players.Min(player => player.Score!.Value) : players.Max(player => player.Score!.Value);
+        return players.Where(player => player.Score == winningScore).Select(player => player.PlayerId).ToArray();
+    }
+}
+
 public sealed class GameSessionService(IGameSessionRepository sessions)
 {
     public async Task<GameSessionResult> RecordAsync(int boardGameId, DateOnly playedAt,
-        IReadOnlyList<SessionPlayerInput> players, IReadOnlyCollection<int> winnerPlayerIds, string? notes = null,
-        IReadOnlyCollection<int>? expansionIds = null)
+        IReadOnlyList<SessionPlayerInput> players, IReadOnlyCollection<int>? winnerPlayerIds = null, string? notes = null,
+        IReadOnlyCollection<int>? expansionIds = null, ScoreWinRule scoreWinRule = ScoreWinRule.Highest)
     {
         expansionIds ??= [];
-        await ValidateAsync(boardGameId, playedAt, players, winnerPlayerIds, expansionIds);
+        var winners = SessionWinnerResolver.Resolve(players, winnerPlayerIds, scoreWinRule);
+        await ValidateAsync(boardGameId, playedAt, players, winners, expansionIds);
         notes = string.IsNullOrWhiteSpace(notes) ? null : notes.Trim();
 
-        return await sessions.AddAsync(boardGameId, playedAt, notes, players, winnerPlayerIds.ToHashSet(), expansionIds);
+        return await sessions.AddAsync(boardGameId, playedAt, notes, players, winners.ToHashSet(), expansionIds);
     }
 
     public async Task<GameSessionResult> UpdateAsync(int id, JsonElement changes)

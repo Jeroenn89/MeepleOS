@@ -8,7 +8,16 @@
     {
         <p class="chat-message @(m.User?"user":"assistant")">
             <b>@(m.User?"Jij":"MeepleOS")</b>
-            <br>@m.Text</p>
+            <br>
+            @if (m.User)
+            {
+                @m.Text
+            }
+            else
+            {
+                @RenderMessage(m.Text)
+            }
+        </p>
     }
     @if (busy)
     {

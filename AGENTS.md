@@ -18,3 +18,12 @@
 - Zoek spelersnamen uitsluitend in de eigen database.
 - Verzin geen ontbrekende gegevens. Vraag om verduidelijking als verplichte informatie niet betrouwbaar vastgesteld kan worden.
 - Gebruik uitsluitend de bestaande MCP-tools voor databasebewerkingen.
+
+# Tijdelijke testbestanden
+
+- Ruim tijdelijke test- en buildmappen die je zelf hebt aangemaakt na afloop van een taak automatisch op.
+- Gebruik bij voorkeur tijdelijke locaties buiten de projectmappen.
+- Laat geen `.tmp-*`-mappen met DLL-, EXE- of PDB-bestanden achter.
+- Beëindig zelf gestarte testprocessen netjes voordat je bestanden opruimt.
+- Verwijder uitsluitend tijdelijke bestanden die je zelf hebt aangemaakt. Verwijder nooit broncode, databases of bestanden van andere processen.
+- Voeg tijdelijke testmappen toe aan `.gitignore`, zodat ze niet per ongeluk worden gecommit.

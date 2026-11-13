@@ -4,96 +4,88 @@ namespace MeepleOS.AiClient;
 
 internal static class BoardgameMention
 {
+    private static readonly Regex AfterCue = new(
+        @"\b(?:speelde|registreer|registreren|bordspel|potje)\s+(?<name>[\p{L}\p{N}' -]{2,80}?)(?=\s+(?:met|tegen|vandaag|gisteren|op|gespeeld)\b|[.,;!?]|$)",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex BeforePlayed = new(
-        @"(?<token>[\p{L}\p{N}'-]{5,})\s+gespeeld\b",
+        @"(?<name>[\p{L}\p{N}' -]{2,80}?)\s+gespeeld\b",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex BeforeRegister = new(
+        @"(?<name>[\p{L}\p{N}' -]{2,80}?)\s+registreren\b",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
-    public static Item? FindUnique(Catalog catalog, string command)
-    {
-        // The word immediately before "gespeeld" is the strongest cue for a short game name.
-        var cue = BeforePlayed.Match(command);
-        if (cue.Success)
-        {
-            var matched = MatchToken(catalog.Boardgames, cue.Groups["token"].Value);
-            if (matched is not null)
-                return matched;
-        }
+    internal sealed record Result(Item? Game, string? Mention, IReadOnlyList<Item> Ambiguous);
 
-        var exact = catalog.Boardgames.Where(game => Mentioned(command, game.Name)).ToList();
-        return exact.Count == 1 ? exact[0] : null;
+    public static Result Find(Catalog catalog, string command)
+    {
+        var phrases = Phrases(command)
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        if (phrases.Length == 0)
+            phrases = catalog.Boardgames.Where(game => Mentioned(command, game.Name))
+                .Select(game => game.Name).ToArray();
+        var scored = catalog.Boardgames.Select(game => new
+        {
+            Game = game,
+            Matches = phrases.Select(phrase => (Phrase: phrase, Score: GameTitleMatcher.Score(phrase, game.Name)))
+                .Where(candidate => candidate.Score.HasValue)
+                .OrderBy(candidate => candidate.Score).ThenByDescending(candidate => candidate.Phrase.Length).ToArray()
+        }).Where(candidate => candidate.Matches.Length > 0)
+            .OrderBy(candidate => candidate.Matches[0].Score).ToArray();
+        if (scored.Length == 0) return new Result(null, null, []);
+        var best = scored[0].Matches[0].Score;
+        var tied = scored.Where(candidate => candidate.Matches[0].Score == best).Select(candidate => candidate.Game).ToArray();
+        return tied.Length == 1
+            ? new Result(tied[0], scored[0].Matches[0].Phrase, [])
+            : new Result(null, null, tied);
     }
 
-    public static string CanonicalizeCommand(string command, Item game) => BeforePlayed.Replace(command, match =>
+    public static bool MatchesCommandName(string command, string name) =>
+        Mentioned(command, name) || Phrases(command).Any(phrase => GameTitleMatcher.Score(phrase, name).HasValue);
+
+    public static Result FindByName(Catalog catalog, string name)
     {
-        var token = match.Groups["token"];
-        return Similar(token.Value, game.Name)
-            ? game.Name + match.Value[token.Length..]
-            : match.Value;
-    });
+        var scored = catalog.Boardgames.Select(game => (Game: game, Score: GameTitleMatcher.Score(name, game.Name)))
+            .Where(candidate => candidate.Score.HasValue).OrderBy(candidate => candidate.Score).ToArray();
+        if (scored.Length == 0) return new Result(null, null, []);
+        var tied = scored.Where(candidate => candidate.Score == scored[0].Score).Select(candidate => candidate.Game).ToArray();
+        return tied.Length == 1 ? new Result(tied[0], name, []) : new Result(null, null, tied);
+    }
+
+    public static string CanonicalizeCommand(string command, Item game)
+    {
+        var mention = Find(new Catalog([game], [], []), command).Mention;
+        return mention is null ? command : Regex.Replace(command,
+            $@"(?<![\p{{L}}\p{{N}}]){Regex.Escape(mention)}(?![\p{{L}}\p{{N}}])",
+            game.Name, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    }
 
     public static void ResolvePlanReferences(Plan plan, Item game)
     {
         foreach (var action in plan.Actions)
         {
             if (action.Kind == "add_boardgame"
-                && (string.IsNullOrWhiteSpace(action.Name) || Similar(action.Name, game.Name)))
+                && (string.IsNullOrWhiteSpace(action.Name) || GameTitleMatcher.Score(action.Name, game.Name).HasValue))
                 action.Name = game.Name;
-
             if (action.Kind == "record_session"
-                && (string.IsNullOrWhiteSpace(action.Boardgame) || Similar(action.Boardgame, game.Name)))
+                && (string.IsNullOrWhiteSpace(action.Boardgame) || GameTitleMatcher.Score(action.Boardgame, game.Name).HasValue))
                 action.Boardgame = game.Name;
         }
     }
 
-    private static Item? MatchToken(List<Item> games, string token)
+    private static IEnumerable<string> Phrases(string command)
     {
-        var exact = games.Where(game => game.Name.Equals(token, StringComparison.OrdinalIgnoreCase)).ToList();
-        if (exact.Count == 1)
-            return exact[0];
-
-        var close = games.Where(game => !game.Name.Contains(' ')
-                && game.Name.Length >= 5
-                && EditDistanceAtMostOne(game.Name, token))
-            .ToList();
-        return close.Count == 1 ? close[0] : null;
-    }
-
-    private static bool Similar(string left, string right) =>
-        left.Trim().Equals(right, StringComparison.OrdinalIgnoreCase)
-        || !left.Contains(' ') && !right.Contains(' ') && EditDistanceAtMostOne(left.Trim(), right);
-
-    private static bool Mentioned(string text, string name) =>
-        Regex.IsMatch(text,
-            $@"(?<![\p{{L}}\p{{N}}]){Regex.Escape(name)}(?![\p{{L}}\p{{N}}])",
-            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
-
-    private static bool EditDistanceAtMostOne(string left, string right)
-    {
-        left = left.ToUpperInvariant();
-        right = right.ToUpperInvariant();
-        if (Math.Abs(left.Length - right.Length) > 1)
-            return false;
-
-        var i = 0;
-        var j = 0;
-        var edits = 0;
-        while (i < left.Length && j < right.Length)
-        {
-            if (left[i] == right[j])
+        foreach (Match match in AfterCue.Matches(command))
+            yield return match.Groups["name"].Value.Trim();
+        foreach (var pattern in new[] { BeforePlayed, BeforeRegister })
+            foreach (Match match in pattern.Matches(command))
             {
-                i++;
-                j++;
-                continue;
+                var words = match.Groups["name"].Value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                for (var count = 1; count <= Math.Min(words.Length, 6); count++)
+                    yield return string.Join(' ', words[^count..]);
             }
-
-            if (++edits > 1)
-                return false;
-            if (left.Length >= right.Length)
-                i++;
-            if (right.Length >= left.Length)
-                j++;
-        }
-
-        return edits + (left.Length - i) + (right.Length - j) <= 1;
     }
+
+    private static bool Mentioned(string command, string name) => Regex.IsMatch(command,
+        $@"(?<![\p{{L}}\p{{N}}]){Regex.Escape(name)}(?![\p{{L}}\p{{N}}])",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 }

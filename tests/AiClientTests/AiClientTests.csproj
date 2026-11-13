@@ -7,5 +7,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/MeepleOS.AiClient/MeepleOS.AiClient.csproj" />
+    <ProjectReference Include="../../src/MeepleOS.BusinessLayer/MeepleOS.BusinessLayer.csproj" />
   </ItemGroup>
 </Project>

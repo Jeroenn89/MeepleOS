@@ -1,6 +1,8 @@
 using MeepleOS.BusinessLayer.Services;
 using MeepleOS.Web.Services;
 using Microsoft.AspNetCore.Components;
+using System.Text;
+using System.Text.Encodings.Web;
 using System.Text.RegularExpressions;
 
 namespace MeepleOS.Web.Components.Pages;
@@ -10,6 +12,28 @@ public partial class Chat
     private static readonly Regex DestructiveCommand = new(
         @"\b(verwijder|wis|wijzig|hernoem|pas aan)\b",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex SourceLink = new(@"\[(?<label>[^\]\r\n]{1,100})\]\((?<url>https://[^\s)]+)\)",
+        RegexOptions.Compiled);
+
+    private static MarkupString RenderMessage(string message)
+    {
+        var html = new StringBuilder();
+        var offset = 0;
+        foreach (Match match in SourceLink.Matches(message))
+        {
+            html.Append(HtmlEncoder.Default.Encode(message[offset..match.Index]).Replace("\r\n", "<br>").Replace("\n", "<br>"));
+            var url = match.Groups["url"].Value;
+            if (Uri.TryCreate(url, UriKind.Absolute, out var uri) && uri.Scheme == Uri.UriSchemeHttps)
+                html.Append("<a href=\"").Append(HtmlEncoder.Default.Encode(url))
+                    .Append("\" target=\"_blank\" rel=\"noopener noreferrer\">")
+                    .Append(HtmlEncoder.Default.Encode(match.Groups["label"].Value)).Append("</a>");
+            else
+                html.Append(HtmlEncoder.Default.Encode(match.Value));
+            offset = match.Index + match.Length;
+        }
+        html.Append(HtmlEncoder.Default.Encode(message[offset..]).Replace("\r\n", "<br>").Replace("\n", "<br>"));
+        return new MarkupString(html.ToString());
+    }
 
     private List<(bool User, string Text)> messages = [];
     private string prompt = "";

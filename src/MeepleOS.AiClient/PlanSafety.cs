@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using MeepleOS.BusinessLayer.Services;
 
 namespace MeepleOS.AiClient;
 
@@ -8,31 +9,39 @@ internal static class PlanSafety
 {
     private static readonly StringComparer Names = StringComparer.OrdinalIgnoreCase;
     private static readonly Regex PlayerRange = new(
-        @"(?<!\d)(?<min>\d+)\s*(?:-|–|tot|t/m)\s*(?<max>\d+)\s*spelers?\b",
+        @"(?<!\d)(?<min>\d+)\s*(?:-|–|—|to|tot|t/m)\s*(?<max>\d+)\s*(?:players?|spelers?)\b|\b(?:players?|spelers?)\s*:?\s*(?<min2>\d+)\s*(?:-|–|—|to|tot|t/m)\s*(?<max2>\d+)\b",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex Minimum = new(
-        @"\b(?:minimaal|min\.?)\s*(?<value>\d+)\s*spelers?\b",
+        @"\b(?:minimaal|minimum|min\.?)\s*(?:of\s*)?(?<value>\d+)\s*(?:players?|spelers?)\b",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex Maximum = new(
-        @"\b(?:maximaal|max\.?)\s*(?<value>\d+)\s*spelers?\b",
+        @"\b(?:maximaal|maximum|max\.?)\s*(?:of\s*)?(?<value>\d+)\s*(?:players?|spelers?)\b",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex Duration = new(
-        @"\b(?<value>\d+)\s*(?:minuten|min\.?)\b",
+        @"\b(?<value>\d+)\s*(?:minutes?|minuten|min\.?)\b",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex NoMaximum = new(
         @"\b(?:geen vast maximum|zonder vast maximum|onbeperkt aantal spelers)\b",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex OrderedScores = new(
+        @"\bscores?\b[^.;\r\n]*?\b(?:in die volgorde|respectievelijk)\s+(?<scores>-?\d+(?:\s*[,/]\s*|\s+en\s+)-?\d+[^.;\r\n]*)",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     public static bool NeedsGameFacts(string command)
+        => MissingGameFacts(command).Count > 0;
+
+    public static IReadOnlyList<string> MissingGameFacts(string command)
     {
         var range = PlayerRange.Match(command);
-        return !(range.Success || ReadNumber(Minimum, command).HasValue)
-            || !(range.Success || ReadNumber(Maximum, command).HasValue || NoMaximum.IsMatch(command))
-            || !ReadNumber(Duration, command).HasValue;
+        var missing = new List<string>();
+        if (!(range.Success || ReadNumber(Minimum, command).HasValue)) missing.Add("minimumaantal spelers");
+        if (!(range.Success || ReadNumber(Maximum, command).HasValue || NoMaximum.IsMatch(command))) missing.Add("maximumaantal spelers");
+        if (!ReadNumber(Duration, command).HasValue) missing.Add("speelduur");
+        return missing;
     }
 
     public static Plan Prepare(Plan plan, Catalog catalog, string command, bool readOnly,
-        IReadOnlyList<GameSearchHit>? searchHits = null)
+        IReadOnlyList<GameSearchHit>? searchHits = null, Action<string>? onTrace = null, string? verifiedGameName = null)
     {
         if (readOnly || plan.Actions is null)
             return plan;
@@ -59,7 +68,7 @@ internal static class PlanSafety
                     break;
 
                 case "add_boardgame":
-                    AddBoardgame(action.Name, command, games, prepared, action, searchHits);
+                    AddBoardgame(action.Name, command, games, prepared, searchHits, onTrace, verifiedGameName, action);
                     break;
 
                 case "add_expansion":
@@ -67,7 +76,7 @@ internal static class PlanSafety
                     break;
 
                 case "record_session":
-                    PrepareSession(action, command, games, players, expansions, prepared);
+                    PrepareSession(action, command, games, players, expansions, prepared, searchHits, onTrace, verifiedGameName);
                     prepared.Add(action);
                     break;
 
@@ -83,13 +92,15 @@ internal static class PlanSafety
 
     private static void PrepareSession(
         ActionPlan session, string command, HashSet<string> games, HashSet<string> players,
-        List<(string? Game, string Name)> expansions, List<ActionPlan> prepared)
+        List<(string? Game, string Name)> expansions, List<ActionPlan> prepared,
+        IReadOnlyList<GameSearchHit>? searchHits, Action<string>? onTrace, string? verifiedGameName)
     {
         if (string.IsNullOrWhiteSpace(session.Boardgame))
             throw new ClarificationNeededException("Welk bordspel heb je gespeeld?");
 
         if (!games.Contains(session.Boardgame))
-            AddBoardgame(session.Boardgame, command, games, prepared);
+            AddBoardgame(session.Boardgame, command, games, prepared, searchHits: searchHits,
+                onTrace: onTrace, verifiedGameName: verifiedGameName);
 
         var participants = new List<ParticipantPlan>();
         foreach (var plannedParticipant in session.Players)
@@ -127,10 +138,37 @@ internal static class PlanSafety
             }
         }
         session.Players = participants;
+        if (Regex.IsMatch(command, @"\bik\s+(?:heb\b[^.;\r\n]*\bgespeeld|speelde)\b", RegexOptions.IgnoreCase)
+            && players.Contains("Jeroen") && !participants.Any(p => Names.Equals(p.Name, "Jeroen")))
+            participants.Insert(0, new ParticipantPlan { Name = "Jeroen" });
+
+        var ordered = OrderedScores.Match(command);
+        if (ordered.Success && participants.All(p => !p.Score.HasValue))
+        {
+            var values = Regex.Matches(ordered.Groups["scores"].Value, @"-?\d+")
+                .Select(match => int.TryParse(match.Value, out var score) ? (int?)score : null).ToArray();
+            if (values.Length == participants.Count && values.All(value => value.HasValue))
+                for (var index = 0; index < participants.Count; index++) participants[index].Score = values[index];
+        }
         session.Winners = session.Winners
             .SelectMany(winner => ExpandKnownPlayers(winner, players))
             .Distinct(Names)
             .ToList();
+        var explicitlyNamed = participants.Where(participant =>
+            Regex.IsMatch(command, $@"(?<![\p{{L}}\p{{N}}]){Regex.Escape(participant.Name)}\s+(?:won|heeft\s+gewonnen)\b",
+                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)
+            || Names.Equals(participant.Name, "Jeroen") && Regex.IsMatch(command,
+                @"\bik\s+(?:won|heb\s+gewonnen)\b", RegexOptions.IgnoreCase))
+            .Select(participant => participant.Name).ToList();
+        if (explicitlyNamed.Count == 1) session.Winners = explicitlyNamed;
+        if (session.Winners.Count == 0 && participants.Count > 0 && participants.All(p => p.Score.HasValue))
+        {
+            var derived = SessionWinnerResolver.Resolve(
+                participants.Select((p, index) => new SessionPlayerInput(index + 1, p.Score, p.Position)).ToArray(), null);
+            session.Winners = derived.Select(id => participants[id - 1].Name).ToList();
+        }
+        if (session.Winners.Count == 0)
+            throw new ClarificationNeededException("Wie heeft gewonnen?");
 
         foreach (var expansion in session.Expansions.Distinct(Names))
         {
@@ -197,24 +235,45 @@ internal static class PlanSafety
     }
 
     private static void AddBoardgame(string? name, string command, HashSet<string> games, List<ActionPlan> prepared,
-        ActionPlan? proposed = null, IReadOnlyList<GameSearchHit>? searchHits = null)
+        IReadOnlyList<GameSearchHit>? searchHits = null, Action<string>? onTrace = null, string? verifiedGameName = null,
+        ActionPlan? proposed = null)
     {
         if (!string.IsNullOrWhiteSpace(name) && games.Contains(name))
             return;
-        if (string.IsNullOrWhiteSpace(name) || !Mentioned(command, name))
+        if (string.IsNullOrWhiteSpace(name) || !BoardgameMention.MatchesCommandName(command, name)
+            && !Names.Equals(name, verifiedGameName))
+        {
+            onTrace?.Invoke($"Bordspelnaam afgewezen: geplande naam '{name ?? "(leeg)"}' ontbreekt in de opdracht.");
             throw new ClarificationNeededException("Welk bordspel bedoel je?");
+        }
 
         var range = PlayerRange.Match(command);
-        var minimum = range.Success ? int.Parse(range.Groups["min"].Value) : ReadNumber(Minimum, command);
-        var maximum = range.Success ? int.Parse(range.Groups["max"].Value) : ReadNumber(Maximum, command);
+        var minimum = range.Success ? int.Parse(range.Groups[range.Groups["min"].Success ? "min" : "min2"].Value) : ReadNumber(Minimum, command);
+        var maximum = range.Success ? int.Parse(range.Groups[range.Groups["max"].Success ? "max" : "max2"].Value) : ReadNumber(Maximum, command);
         var noMaximum = NoMaximum.IsMatch(command);
         var minutes = ReadNumber(Duration, command);
 
-        if (searchHits is { Count: > 0 } && proposed is not null)
+        if (searchHits is { Count: > 0 })
         {
-            if (minimum is null && proposed.MinPlayers is { } min && GameSearchEvidence.Supports(searchHits, min, false)) minimum = min;
-            if (maximum is null && proposed.MaxPlayers is { } max && GameSearchEvidence.Supports(searchHits, max, false)) maximum = max;
-            if (minutes is null && proposed.EstimatedMinutes is { } time && GameSearchEvidence.Supports(searchHits, time, true)) minutes = time;
+            var facts = GameSearchEvidence.Extract(searchHits);
+            foreach (var fact in new[] { "minimumaantal spelers", "maximumaantal spelers", "speelduur" })
+            {
+                var decision = GameSearchEvidence.Resolve(searchHits, fact);
+                onTrace?.Invoke($"Broncontrole {name}, {fact}: {decision.Reason}; "
+                    + (decision.Value is { } value ? $"waarde {value}" : $"waarden {string.Join(", ", decision.Candidates)}") + ".");
+            }
+            minimum ??= facts.MinPlayers;
+            if (!noMaximum) maximum ??= facts.MaxPlayers;
+            minutes ??= facts.EstimatedMinutes;
+            if (proposed is not null)
+            {
+                if (minimum is null && proposed.MinPlayers is { } min
+                    && GameSearchEvidence.SupportsChosen(searchHits, min, "minimumaantal spelers")) minimum = min;
+                if (!noMaximum && maximum is null && proposed.MaxPlayers is { } max
+                    && GameSearchEvidence.SupportsChosen(searchHits, max, "maximumaantal spelers")) maximum = max;
+                if (minutes is null && proposed.EstimatedMinutes is { } duration
+                    && GameSearchEvidence.SupportsChosen(searchHits, duration, "speelduur")) minutes = duration;
+            }
         }
 
         if (noMaximum && maximum.HasValue)
@@ -225,7 +284,10 @@ internal static class PlanSafety
         if (!noMaximum && maximum is null) missing.Add("maximumaantal spelers (of geen vast maximum)");
         if (minutes is null or < 1) missing.Add("speelduur in minuten");
         if (missing.Count > 0)
+        {
+            foreach (var fact in missing) onTrace?.Invoke($"Bordspelgegeven afgewezen voor {name}: {fact} ontbreekt na opdracht en broncontrole.");
             throw new ClarificationNeededException($"Voor {name} ontbreken nog {string.Join(", ", missing)}. Wat zijn die gegevens?");
+        }
         if (!noMaximum && maximum < minimum)
             throw new ClarificationNeededException($"Wat is het juiste maximumaantal spelers voor {name}?");
 

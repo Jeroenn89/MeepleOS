@@ -11,9 +11,9 @@ public sealed class GameSessionTools(GameSessionService sessions)
     [McpServerTool(Name = "record_game_session"),
      Description("Registreer een potje met deelnemers, winnaar-ID's en optionele uitbreiding-ID's, scores, eindposities en opmerkingen.")]
     public Task<GameSessionResult> RecordGameSession(int boardGameId, DateOnly playedAt,
-        List<SessionPlayerInput> players, List<int> winnerPlayerIds, string? notes = null,
-        List<int>? expansionIds = null) =>
-        sessions.RecordAsync(boardGameId, playedAt, players, winnerPlayerIds, notes, expansionIds);
+        List<SessionPlayerInput> players, List<int>? winnerPlayerIds = null, string? notes = null,
+        List<int>? expansionIds = null, ScoreWinRule scoreWinRule = ScoreWinRule.Highest) =>
+        sessions.RecordAsync(boardGameId, playedAt, players, winnerPlayerIds, notes, expansionIds, scoreWinRule);
 
     [McpServerTool(Name = "get_game_sessions"), Description("Haal gespeelde potjes op, optioneel gefilterd op bordspel, deelnemer en inclusieve datumperiode.")]
     public Task<List<GameSessionResult>> GetGameSessions(int? boardGameId = null, int? playerId = null,
