@@ -5,6 +5,10 @@ namespace MeepleOS.Web.Services;
 public sealed class ChatService(WebOptions options, IHttpClientFactory httpFactory, ILogger<ChatService> logger)
 {
     private string? pendingCommand;
+    private string? pendingQuestion;
+    private IReadOnlyList<GameSearchHit> pendingChoices = [];
+    private string? pendingSearchName;
+    private IReadOnlyCollection<int> rejectedBggIds = [];
     private readonly SemaphoreSlim gate = new(1, 1);
 
     public async Task<string> AskAsync(string command)
@@ -31,11 +35,17 @@ public sealed class ChatService(WebOptions options, IHttpClientFactory httpFacto
                 detail => logger.LogInformation("AI-chat: {Detail}", detail));
             var processor = new CommandProcessor(tools, planner, pendingCommand: pendingCommand, gameSearch: search,
                 onError: error => logger.LogError(error, "AI-chat fout."),
-                onTrace: detail => logger.LogInformation("AI-chat: {Detail}", detail));
+                onTrace: detail => logger.LogInformation("AI-chat: {Detail}", detail),
+                pendingQuestion: pendingQuestion, pendingChoices: pendingChoices,
+                pendingSearchName: pendingSearchName, rejectedBggIds: rejectedBggIds);
             var zone = TimeZoneInfo.FindSystemTimeZoneById("Europe/Amsterdam");
             var today = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, zone).DateTime);
             var result = await processor.RunAsync(command, today);
             pendingCommand = processor.PendingCommand;
+            pendingQuestion = processor.PendingQuestion;
+            pendingChoices = processor.PendingChoices;
+            pendingSearchName = processor.PendingSearchName;
+            rejectedBggIds = processor.RejectedBggIds;
             return $"{result.Message}{Environment.NewLine}Gemini-verzoeken: {result.GeminiRequests}.";
         }
         catch (Exception ex)

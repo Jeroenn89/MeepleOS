@@ -22,6 +22,11 @@ if (args.Contains("--search-tests", StringComparer.OrdinalIgnoreCase))
     await RunSearchTests();
     return;
 }
+if (args.Contains("--clarification-tests", StringComparer.OrdinalIgnoreCase))
+{
+    await RunClarificationTests();
+    return;
+}
 
 var passed = 0;
 {
@@ -930,6 +935,115 @@ async Task RunNameTests()
         count++;
     }
     Console.WriteLine($"{count} gerichte bordspelnaamtests geslaagd.");
+}
+
+async Task RunClarificationTests()
+{
+    var date = new DateOnly(2026, 11, 13);
+    var checks = 0;
+    async Task Selected(string reply, string? choice, int selectedId, string title,
+        GameSearchHit[] options)
+    {
+        var handler = new ScriptedTavilyHandler(query => query.Contains($"/{selectedId}")
+            ? [new GameSearchHit($"{title} | BoardGameGeek",
+                $"https://boardgamegeek.com/boardgame/{selectedId}/{title.ToLowerInvariant().Replace(' ', '-')}",
+                "2-4 Players. Play Time: 30 Min.")]
+            : []);
+        using var http = new HttpClient(handler);
+        var tools = new FakeTools();
+        var planner = new SequencePlanner(
+            new Plan { GameChoice = choice, Actions = [Session(title, ["Jeroen", "Pallas"], ["Jeroen"])] },
+            new Plan { Actions = [Session(title, ["Jeroen", "Pallas"], ["Jeroen"])] });
+        var processor = new CommandProcessor(tools, planner,
+            pendingCommand: "Ik speelde het spel met Pallas; ik won.",
+            gameSearch: new TavilyGameSearch(http, "mock-key"),
+            pendingQuestion: "Welk bordspel bedoel je?",
+            pendingChoices: options, pendingSearchName: title);
+        var result = await processor.RunAsync(reply, date);
+        if (!result.Message.Contains("geregistreerd") || tools.LastBoardgame?.GetProperty("name").GetString() != title
+            || handler.Queries.Count == 0 || !handler.Queries[0].Contains($"/{selectedId}")
+            || !planner.Commands[0].Contains("Aangeboden spelopties") || processor.PendingCommand is not null)
+            throw new Exception($"Keuze '{reply}' voor {title} faalde: {result.Message}");
+        checks++;
+    }
+
+    var editions = new[]
+    {
+        new GameSearchHit("Dune (1979) | BoardGameGeek", "https://boardgamegeek.com/boardgame/1/dune", "2-6 Players."),
+        new GameSearchHit("Dune (2019) | BoardGameGeek", "https://boardgamegeek.com/boardgame/2/dune", "2-6 Players.")
+    };
+    await Selected("de eerste", "1", 1, "Dune", editions);
+    await Selected("de tweede", null, 2, "Dune", editions);
+    await Selected("de gewone versie", "1", 1, "Dune", editions);
+    var fantasy = new[]
+    {
+        new GameSearchHit("Adventure Quest | BoardGameGeek", "https://boardgamegeek.com/boardgame/3/adventure-quest", "2-4 Players."),
+        new GameSearchHit("The Legend of Zelda | BoardGameGeek", "https://boardgamegeek.com/boardgame/4/the-legend-of-zelda", "2-4 Players.")
+    };
+    await Selected("zelda", "4", 4, "The Legend of Zelda", fantasy);
+
+    {
+        var handler = new ScriptedTavilyHandler(query => query.Contains("/2")
+            ? [new GameSearchHit("Dune (2019) | BoardGameGeek", "https://boardgamegeek.com/boardgame/2/dune",
+                "2-6 Players. Play Time: 30 Min.")]
+            : query.Contains("\"Dune\"") ? editions
+            : [editions[0]]);
+        using var http = new HttpClient(handler);
+        var search = new TavilyGameSearch(http, "mock-key");
+        var tools = new FakeTools();
+        var first = new CommandProcessor(tools,
+            new SequencePlanner(new Plan { Actions = [Session("Dune", ["Jeroen", "Pallas"], ["Jeroen"])] }),
+            gameSearch: search);
+        var question = await first.RunAsync("Ik speelde Dune met Pallas; ik won.", date);
+        if (!question.Message.Contains("Welke editie") || first.PendingChoices.Count != 2)
+            throw new Exception($"BGG-opties werden niet bewaard: {question.Message}");
+        var next = new CommandProcessor(tools,
+            new SequencePlanner(new Plan { GameChoice = "2", Actions = [Session("Dune", ["Jeroen", "Pallas"], ["Jeroen"])] }),
+            pendingCommand: first.PendingCommand, gameSearch: search, pendingQuestion: first.PendingQuestion,
+            pendingChoices: first.PendingChoices, pendingSearchName: first.PendingSearchName,
+            rejectedBggIds: first.RejectedBggIds);
+        var result = await next.RunAsync("de tweede", date);
+        if (!result.Message.Contains("geregistreerd") || next.PendingCommand is not null)
+            throw new Exception($"Keuzecontext ging tussen chatberichten verloren: {result.Message}");
+        checks++;
+    }
+
+    {
+        var tools = new FakeTools();
+        var planner = new SequencePlanner(new Plan
+        {
+            GameChoice = "Munchkin", Actions = [Session("Munchkin", ["Jeroen", "Pallas"], ["Jeroen"])]
+        });
+        var processor = new CommandProcessor(tools, planner,
+            pendingCommand: "Ik speelde een fantasyspel met Pallas; ik won.",
+            pendingQuestion: "Welk bordspel bedoel je: Carcassonne of Munchkin?");
+        var result = await processor.RunAsync("de tweede", date);
+        if (!result.Message.Contains("Munchkin geregistreerd") || tools.LastRecord?.GetProperty("boardGameId").GetInt32() != 8
+            || !planner.Commands[0].Contains("Vorige vraag van MeepleOS"))
+            throw new Exception($"Keuze uit bestaande spellen faalde: {result.Message}");
+        checks++;
+    }
+
+    {
+        var handler = new ScriptedTavilyHandler(query => query.Contains("other edition")
+            ? [new GameSearchHit("Dune: Imperium | BoardGameGeek", "https://boardgamegeek.com/boardgame/9/dune-imperium",
+                "1-4 Players. Play Time: 60 Min.")]
+            : editions);
+        using var http = new HttpClient(handler);
+        var planner = new SequencePlanner(new Plan { GameChoice = "geen", Actions = [Session("Dune", ["Jeroen", "Pallas"], ["Jeroen"])] },
+            new Plan { Actions = [Session("Dune: Imperium", ["Jeroen", "Pallas"], ["Jeroen"])] });
+        var tools = new FakeTools();
+        var processor = new CommandProcessor(tools, planner,
+            pendingCommand: "Ik speelde Dune met Pallas; ik won.", gameSearch: new TavilyGameSearch(http, "mock-key"),
+            pendingQuestion: "Welke editie van Dune bedoel je?", pendingChoices: editions, pendingSearchName: "Dune");
+        var result = await processor.RunAsync("geen van deze", date);
+        if (!handler.Queries[0].Contains("other edition")
+            || tools.LastBoardgame?.GetProperty("name").GetString() != "Dune: Imperium"
+            || !result.Message.Contains("geregistreerd"))
+            throw new Exception($"Afgewezen edities zijn herhaald: {result.Message}");
+        checks++;
+    }
+    Console.WriteLine($"{checks} gerichte verduidelijkingstests geslaagd.");
 }
 
 async Task RunSearchTests()

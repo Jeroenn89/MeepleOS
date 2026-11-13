@@ -8,6 +8,7 @@ public sealed record Catalog(List<Item> Boardgames, List<Item> Players, List<Ite
 public sealed class Plan
 {
     public string? Question { get; set; }
+    public string? GameChoice { get; set; }
     public List<ActionPlan> Actions { get; set; } = [];
 }
 

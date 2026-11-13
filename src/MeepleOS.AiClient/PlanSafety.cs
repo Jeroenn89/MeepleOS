@@ -3,7 +3,11 @@ using MeepleOS.BusinessLayer.Services;
 
 namespace MeepleOS.AiClient;
 
-internal sealed class ClarificationNeededException(string question) : Exception(question);
+internal sealed class ClarificationNeededException(string question, IReadOnlyList<GameSearchHit>? choices = null)
+    : Exception(question)
+{
+    public IReadOnlyList<GameSearchHit> Choices { get; } = choices ?? [];
+}
 
 internal static class PlanSafety
 {

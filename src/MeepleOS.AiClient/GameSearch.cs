@@ -13,6 +13,9 @@ public interface IGameSearch
     Task<IReadOnlyList<GameSearchHit>> SearchAsync(string game, CancellationToken ct = default);
     Task<IReadOnlyList<GameSearchHit>> SearchAsync(string game, IReadOnlyCollection<string> missingFacts, CancellationToken ct = default)
         => SearchAsync(game, ct);
+    Task<IReadOnlyList<GameSearchHit>> SearchAsync(string game, IReadOnlyCollection<string> missingFacts,
+        int? preferredBggId, IReadOnlyCollection<int> excludedBggIds, CancellationToken ct = default)
+        => SearchAsync(game, missingFacts, ct);
 }
 
 public sealed class TavilyGameSearch(HttpClient http, string apiKey, Action<string>? onTrace = null) : IGameSearch
@@ -23,13 +26,26 @@ public sealed class TavilyGameSearch(HttpClient http, string apiKey, Action<stri
         => await SearchAsync(game, ["minimumaantal spelers", "maximumaantal spelers", "speelduur"], ct);
 
     public async Task<IReadOnlyList<GameSearchHit>> SearchAsync(string game, IReadOnlyCollection<string> missingFacts, CancellationToken ct = default)
+        => await SearchAsync(game, missingFacts, null, [], ct);
+
+    public async Task<IReadOnlyList<GameSearchHit>> SearchAsync(string game, IReadOnlyCollection<string> missingFacts,
+        int? preferredBggId, IReadOnlyCollection<int> excludedBggIds, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(apiKey)) { onTrace?.Invoke("Tavily overgeslagen: API-sleutel ontbreekt."); return []; }
         var terms = new List<string>();
         if (missingFacts.Any(fact => fact.Contains("spelers", StringComparison.OrdinalIgnoreCase))) terms.Add("player count");
         if (missingFacts.Any(fact => fact.Contains("speelduur", StringComparison.OrdinalIgnoreCase))) terms.Add("playing time minutes");
         if (terms.Count == 0) { onTrace?.Invoke("Tavily overgeslagen: geen zoektermen voor de ontbrekende spelgegevens."); return []; }
-        var bggResults = await QueryAsync($"site:boardgamegeek.com/boardgame/ {game} {string.Join(" ", terms)}", ct);
+        if (preferredBggId is { } selectedId)
+        {
+            var selected = await QueryAsync($"site:boardgamegeek.com/boardgame/{selectedId} {string.Join(" ", terms)}", ct);
+            return MergeHits(selected.Where(hit => BggId(hit) == selectedId));
+        }
+        var retryChoices = excludedBggIds.Count > 0;
+        var bggResults = await QueryAsync(retryChoices
+            ? $"site:boardgamegeek.com/boardgame/ \"{game}\" board game other edition {string.Join(" ", terms)}"
+            : $"site:boardgamegeek.com/boardgame/ {game} {string.Join(" ", terms)}", ct);
+        bggResults = bggResults.Where(hit => BggId(hit) is not { } id || !excludedBggIds.Contains(id)).ToArray();
         var queryCount = 1;
         foreach (var hit in bggResults)
             onTrace?.Invoke($"BGG-kandidaat {hit.Url}: {(IsMatchingBgg(hit, game) ? "passende spelpagina" : "geen passende spelpagina")}.");
@@ -43,7 +59,8 @@ public sealed class TavilyGameSearch(HttpClient http, string apiKey, Action<stri
         {
             var identity = await QueryAsync($"site:boardgamegeek.com/boardgame/ \"{game}\"", ct);
             queryCount++;
-            bgg = SelectBgg(bgg.Concat(identity.Where(IsBgg)), game);
+            bgg = SelectBgg(bgg.Concat(identity.Where(hit => IsBgg(hit)
+                && (BggId(hit) is not { } id || !excludedBggIds.Contains(id)))), game);
         }
         var searchedBggId = false;
         if (bgg.Count > 0 && bgg.All(hit => !IsCanonicalBgg(hit)))
@@ -62,7 +79,8 @@ public sealed class TavilyGameSearch(HttpClient http, string apiKey, Action<stri
 
         var general = await QueryAsync($"\"{game}\" board game publisher {string.Join(" ", terms)}", ct);
         queryCount++;
-        bgg = SelectBgg(bgg.Concat(general.Where(IsBgg)), game);
+        bgg = SelectBgg(bgg.Concat(general.Where(hit => IsBgg(hit)
+            && (BggId(hit) is not { } id || !excludedBggIds.Contains(id)))), game);
         var hits = MergeHits(bgg.Concat(general.Where(hit => !IsBgg(hit) && IsMatchingGeneral(hit, game))));
         if (hits.Count == 0)
             onTrace?.Invoke(general.Count == 0
@@ -75,7 +93,8 @@ public sealed class TavilyGameSearch(HttpClient http, string apiKey, Action<stri
         var retry = await QueryAsync(bgg.Count > 0 && !searchedBggId
             ? $"site:boardgamegeek.com/boardgame/{BggId(bgg[0])} {string.Join(" ", unresolved.Select(fact => fact == "speelduur" ? "playing time minutes" : "players"))}"
             : $"\"{game}\" board game rules {string.Join(" ", unresolved.Select(fact => fact == "speelduur" ? "playing time minutes" : "players"))}", ct);
-        bgg = SelectBgg(bgg.Concat(retry.Where(IsBgg)), game);
+        bgg = SelectBgg(bgg.Concat(retry.Where(hit => IsBgg(hit)
+            && (BggId(hit) is not { } id || !excludedBggIds.Contains(id)))), game);
         return MergeHits(bgg.Concat(hits.Where(hit => !IsBgg(hit)))
             .Concat(retry.Where(hit => !IsBgg(hit) && IsMatchingGeneral(hit, game))));
     }
@@ -89,7 +108,14 @@ public sealed class TavilyGameSearch(HttpClient http, string apiKey, Action<stri
         if (candidates.Any(hit => BggId(hit) != firstId
             && GameTitleMatcher.PageTitle(hit.Title).Equals(GameTitleMatcher.PageTitle(first.Title),
                 StringComparison.OrdinalIgnoreCase)))
-            throw new ClarificationNeededException($"Welke editie van {GameTitleMatcher.PageTitle(first.Title)} bedoel je?");
+        {
+            var choices = candidates.Where(hit => BggId(hit) != null
+                && GameTitleMatcher.PageTitle(hit.Title).Equals(GameTitleMatcher.PageTitle(first.Title),
+                    StringComparison.OrdinalIgnoreCase)).GroupBy(hit => BggId(hit))
+                .Select(group => group.First()).ToArray();
+            throw new ClarificationNeededException($"Welke editie van {GameTitleMatcher.PageTitle(first.Title)} bedoel je: "
+                + $"{string.Join(" of ", choices.Select((hit, index) => $"de {index + 1}e (BGG {BggId(hit)})"))}?", choices);
+        }
         var firstScore = BggScore(first, game);
         var alternatives = candidates.Where(hit => BggId(hit) != firstId
             && BggScore(hit, game) == firstScore)
@@ -97,7 +123,9 @@ public sealed class TavilyGameSearch(HttpClient http, string apiKey, Action<stri
             .Where(title => !title.Equals(GameTitleMatcher.PageTitle(first.Title), StringComparison.OrdinalIgnoreCase))
             .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         if (alternatives.Length > 0)
-            throw new ClarificationNeededException($"Welk bordspel bedoel je: {GameTitleMatcher.PageTitle(first.Title)} of {string.Join(" of ", alternatives)}?");
+            throw new ClarificationNeededException($"Welk bordspel bedoel je: {GameTitleMatcher.PageTitle(first.Title)} of {string.Join(" of ", alternatives)}?",
+                candidates.Where(hit => BggId(hit) != null && BggScore(hit, game) == firstScore)
+                    .GroupBy(hit => BggId(hit)).Select(group => group.First()).ToArray());
         return MergeHits(candidates.Where(hit => BggId(hit) == firstId));
     }
 

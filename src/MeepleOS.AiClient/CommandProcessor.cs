@@ -5,13 +5,15 @@ namespace MeepleOS.AiClient;
 
 public sealed class CommandProcessor(IMeepleTools tools, IPlanner planner, bool readOnly = false,
     string? pendingCommand = null, IGameSearch? gameSearch = null, Action<Exception>? onError = null,
-    Action<string>? onTrace = null)
+    Action<string>? onTrace = null, string? pendingQuestion = null,
+    IReadOnlyList<GameSearchHit>? pendingChoices = null, string? pendingSearchName = null,
+    IReadOnlyCollection<int>? rejectedBggIds = null)
 {
     private static readonly Regex NewRequest = new(
         @"^\s*(?:ik\s+(?:speelde\b|heb\b[^\r\n.!?;]*\bgespeeld\b)|(?:toon|geef|welke|wat|wie|hoeveel|registreer|voeg|verwijder|wijzig|hernoem)\b)|\b(?:registreren|registreer|gespeeld|speelde)\b",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex BoardgameQuestion = new(
-        @"\b(?:welk|welke|wat)\b[^?\r\n]*\b(?:bordspel|spel)\b|\b(?:bordspel|spel)\b[^?\r\n]*\bbedoel\b",
+        @"\b(?:welk|welke|wat)\b[^?\r\n]*\b(?:bordspel|spel|editie)\b|\b(?:bordspel|spel|editie)\b[^?\r\n]*\bbedoel\b",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex MissingFactsQuestion = new(@"\b(?:speelduur|spelersaantal|aantal spelers|minimumaantal spelers|maximumaantal spelers|speeltijd)\b",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
@@ -23,6 +25,10 @@ public sealed class CommandProcessor(IMeepleTools tools, IPlanner planner, bool 
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     public string? PendingCommand { get; private set; } = pendingCommand;
+    public string? PendingQuestion { get; private set; } = pendingQuestion;
+    public IReadOnlyList<GameSearchHit> PendingChoices { get; private set; } = pendingChoices ?? [];
+    public string? PendingSearchName { get; private set; } = pendingSearchName;
+    public IReadOnlyCollection<int> RejectedBggIds { get; private set; } = rejectedBggIds ?? [];
     private static readonly HashSet<string> ReadKinds = ["get_boardgames", "get_players", "get_expansions", "get_sessions", "get_player_statistics", "get_boardgame_statistics", "get_leaderboard", "get_play_statistics"];
     private static readonly HashSet<string> Kinds = [.. ReadKinds, "add_player", "add_boardgame", "add_expansion", "record_session", "update_player", "update_boardgame", "update_expansion", "update_session", "delete_player", "delete_boardgame", "delete_expansion", "delete_session"];
 
@@ -31,6 +37,10 @@ public sealed class CommandProcessor(IMeepleTools tools, IPlanner planner, bool 
         if (PendingCommand is not null && command.Trim().Equals("annuleer", StringComparison.OrdinalIgnoreCase))
         {
             PendingCommand = null;
+            PendingQuestion = null;
+            PendingChoices = [];
+            PendingSearchName = null;
+            RejectedBggIds = [];
             return new CommandResult("Opdracht geannuleerd; niets opgeslagen.", 0);
         }
 
@@ -38,6 +48,10 @@ public sealed class CommandProcessor(IMeepleTools tools, IPlanner planner, bool 
         {
             onTrace?.Invoke("Nieuwe opdracht vervangt de lopende registratie.");
             PendingCommand = null;
+            PendingQuestion = null;
+            PendingChoices = [];
+            PendingSearchName = null;
+            RejectedBggIds = [];
         }
 
         var fullCommand = PendingCommand is null ? command : $"{PendingCommand}{Environment.NewLine}Aanvullende gegevens: {command}";
@@ -48,14 +62,39 @@ public sealed class CommandProcessor(IMeepleTools tools, IPlanner planner, bool 
         {
             var catalog = await ReadCatalog(ct);
             onTrace?.Invoke($"Catalogus: {catalog.Boardgames.Count} spellen, {catalog.Players.Count} spelers, {catalog.Expansions.Count} uitbreidingen.");
-            var commandMatch = BoardgameMention.Find(catalog, fullCommand);
+            var answeringGameQuestion = PendingQuestion is not null && BoardgameQuestion.IsMatch(PendingQuestion);
+            var commandMatch = BoardgameMention.Find(catalog, answeringGameQuestion ? command : fullCommand);
             var knownGame = commandMatch.Game;
             onTrace?.Invoke($"Bestaand spel: {knownGame?.Name ?? "geen"}.");
             var plannerCommand = knownGame is null ? fullCommand
                 : $"{BoardgameMention.CanonicalizeCommand(fullCommand, knownGame)}{Environment.NewLine}Bestaand bordspel uit de catalogus: {knownGame.Name}. Gebruik exact deze naam en vraag niet welk spel bedoeld is.";
             if (commandMatch.Ambiguous.Count > 0)
                 plannerCommand += $"{Environment.NewLine}Mogelijke bestaande spellen: {string.Join(", ", commandMatch.Ambiguous.Select(game => game.Name))}. Kies alleen als de oorspronkelijke opdracht het spel ondubbelzinnig aanwijst.";
+            if (PendingQuestion is not null)
+                plannerCommand += $"{Environment.NewLine}Vorige vraag van MeepleOS: {PendingQuestion}{Environment.NewLine}Laatste antwoord van gebruiker: {command}";
+            if (PendingChoices.Count > 0)
+                plannerCommand += $"{Environment.NewLine}Aangeboden spelopties: {string.Join("; ", PendingChoices.Select((hit, index) => $"{index + 1}. {hit.Title} (BGG-ID {TavilyGameSearch.BggId(hit)}; {hit.Content[..Math.Min(hit.Content.Length, 180)]})"))}. Kies de bedoelde optie op grond van het laatste antwoord. Als geen optie klopt, zet gameChoice op 'geen'; de client zoekt dan opnieuw.";
             var plan = await planner.PlanAsync(plannerCommand, catalog, today, ct);
+            var chosenHit = PendingChoices.FirstOrDefault(hit =>
+                TavilyGameSearch.BggId(hit)?.ToString() == plan.GameChoice);
+            if (chosenHit is null && !string.IsNullOrWhiteSpace(plan.GameChoice))
+            {
+                var byTitle = PendingChoices.Where(hit =>
+                    GameTitleMatcher.PageTitle(hit.Title).Equals(plan.GameChoice, StringComparison.OrdinalIgnoreCase)).ToArray();
+                if (byTitle.Length == 1) chosenHit = byTitle[0];
+            }
+            if (chosenHit is null && plan.GameChoice is null && PendingChoices.Count > 0)
+            {
+                var ordinal = Regex.Match(command, @"\b(?:de\s+)?(?<n>eerste|tweede|derde|vierde)\b", RegexOptions.IgnoreCase);
+                var index = ordinal.Success ? ordinal.Groups["n"].Value.ToLowerInvariant() switch
+                    { "eerste" => 0, "tweede" => 1, "derde" => 2, "vierde" => 3, _ => -1 } : -1;
+                if (index >= 0 && index < PendingChoices.Count) chosenHit = PendingChoices[index];
+            }
+            var rejectedChoices = PendingQuestion is not null
+                && plan.GameChoice?.Equals("geen", StringComparison.OrdinalIgnoreCase) == true;
+            if (rejectedChoices)
+                RejectedBggIds = RejectedBggIds.Concat(PendingChoices.Select(TavilyGameSearch.BggId)
+                    .Where(id => id.HasValue).Select(id => id!.Value)).Distinct().ToArray();
             if (knownGame is null)
             {
                 var plannedName = (plan.Actions ?? []).Select(action => action.Kind switch
@@ -70,12 +109,13 @@ public sealed class CommandProcessor(IMeepleTools tools, IPlanner planner, bool 
                 if (plannedName is not null)
                 {
                     var plannedMatch = BoardgameMention.FindByName(catalog, plannedName);
-                    if (commandMatch.Ambiguous.Count > 0
+                    if (commandMatch.Ambiguous.Count > 0 && !answeringGameQuestion
                         && (plannedMatch.Game is null || !Regex.IsMatch(fullCommand,
                             $@"(?<![\p{{L}}\p{{N}}]){Regex.Escape(plannedMatch.Game.Name)}(?![\p{{L}}\p{{N}}])",
                             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)))
                         throw new ClarificationNeededException($"Welk bordspel bedoel je: {string.Join(" of ", commandMatch.Ambiguous.Select(game => game.Name))}?");
-                    if (plannedMatch.Game is not null && !BoardgameMention.MatchesCommandName(fullCommand, plannedName))
+                    if (plannedMatch.Game is not null && !answeringGameQuestion
+                        && !BoardgameMention.MatchesCommandName(fullCommand, plannedName))
                         throw new ClarificationNeededException("Welk bordspel bedoel je?");
                     knownGame = plannedMatch.Game;
                 }
@@ -93,7 +133,7 @@ public sealed class CommandProcessor(IMeepleTools tools, IPlanner planner, bool 
             IReadOnlyList<GameSearchHit> searchHits = [];
             string? verifiedGameName = null;
             string? verifiedRequestedName = null;
-            if (!readOnly && gameSearch is not null && PlanSafety.NeedsGameFacts(fullCommand))
+            if (!readOnly && gameSearch is not null && (PlanSafety.NeedsGameFacts(fullCommand) || rejectedChoices))
             {
                 var newGame = (plan.Actions ?? []).Select(a => a.Kind == "add_boardgame" ? a.Name
                         : a.Kind == "record_session" ? a.Boardgame : null)
@@ -109,6 +149,8 @@ public sealed class CommandProcessor(IMeepleTools tools, IPlanner planner, bool 
                             newGame = mentioned;
                     }
                 }
+                if (rejectedChoices && newGame is null) newGame = PendingSearchName;
+                if (chosenHit is not null) newGame = PendingSearchName;
                 if (newGame is null && PendingCommand is not null && Regex.IsMatch(command, @"\bzoek\b", RegexOptions.IgnoreCase))
                 {
                     var match = GameInRegistration.Match(fullCommand);
@@ -117,14 +159,26 @@ public sealed class CommandProcessor(IMeepleTools tools, IPlanner planner, bool 
                 }
                 if (newGame is not null)
                 {
-                    var missing = PlanSafety.MissingGameFacts(fullCommand);
+                    PendingSearchName = newGame;
+                    IReadOnlyList<string> missing = PlanSafety.MissingGameFacts(fullCommand);
+                    if (rejectedChoices && missing.Count == 0) missing = ["speelduur"];
                     onTrace?.Invoke($"Tavily zoekt voor {newGame}: {string.Join(", ", missing)}.");
                     if (gameSearch is TavilyGameSearch { IsConfigured: false })
                         onTrace?.Invoke("Tavily overgeslagen: TAVILY_API_KEY ontbreekt.");
-                    searchHits = await gameSearch.SearchAsync(newGame, missing, ct);
-                    if (searchHits.FirstOrDefault(hit => TavilyGameSearch.IsMatchingBgg(hit, newGame)) is { } bggHit)
+                    searchHits = await gameSearch.SearchAsync(newGame, missing,
+                        chosenHit is null ? null : TavilyGameSearch.BggId(chosenHit), RejectedBggIds, ct);
+                    if (rejectedChoices && searchHits.Count == 0)
                     {
-                        var title = TavilyGameSearch.BggTitle(bggHit, newGame);
+                        PendingQuestion = $"De andere zoekresultaten voor {newGame} geven nog geen passend spel. Welke titel of editie bedoel je?";
+                        PendingChoices = [];
+                        PendingCommand = fullCommand;
+                        return new CommandResult(PendingQuestion, (planner as IRequestCounter)?.RequestCount - countBefore ?? 1);
+                    }
+                    if (searchHits.FirstOrDefault(hit => TavilyGameSearch.IsMatchingBgg(hit, newGame)
+                        || chosenHit is not null && TavilyGameSearch.BggId(hit) == TavilyGameSearch.BggId(chosenHit)) is { } bggHit)
+                    {
+                        var title = chosenHit is null ? TavilyGameSearch.BggTitle(bggHit, newGame)
+                            : GameTitleMatcher.PageTitle(bggHit.Title);
                         verifiedGameName = BoardgameMention.FindByName(catalog, title).Game?.Name ?? title;
                         verifiedRequestedName = newGame;
                         onTrace?.Invoke($"BGG-spelnaam voor {newGame}: {verifiedGameName}.");
@@ -235,10 +289,12 @@ public sealed class CommandProcessor(IMeepleTools tools, IPlanner planner, bool 
             if (verifiedGameName is not null && plan.Actions is not null)
                 foreach (var action in plan.Actions)
                 {
-                    if (action.Kind == "add_boardgame" && (GameTitleMatcher.SearchScore(action.Name, verifiedGameName).HasValue
+                    if (action.Kind == "add_boardgame" && (chosenHit is not null
+                        || GameTitleMatcher.SearchScore(action.Name, verifiedGameName).HasValue
                         || GameTitleMatcher.SearchScore(action.Name, verifiedRequestedName).HasValue))
                         action.Name = verifiedGameName;
-                    if (action.Kind == "record_session" && (GameTitleMatcher.SearchScore(action.Boardgame, verifiedGameName).HasValue
+                    if (action.Kind == "record_session" && (chosenHit is not null
+                        || GameTitleMatcher.SearchScore(action.Boardgame, verifiedGameName).HasValue
                         || GameTitleMatcher.SearchScore(action.Boardgame, verifiedRequestedName).HasValue))
                         action.Boardgame = verifiedGameName;
                 }
@@ -246,6 +302,11 @@ public sealed class CommandProcessor(IMeepleTools tools, IPlanner planner, bool 
             if (!string.IsNullOrWhiteSpace(plan.Question))
             {
                 PendingCommand = fullCommand;
+                PendingQuestion = plan.Question;
+                PendingChoices = [];
+                if (BoardgameQuestion.IsMatch(plan.Question) && searchHits.Count > 0)
+                    PendingChoices = searchHits.Where(hit => TavilyGameSearch.BggId(hit).HasValue)
+                        .GroupBy(TavilyGameSearch.BggId).Select(group => group.First()).ToArray();
                 return new CommandResult(plan.Question!, count);
             }
 
@@ -253,6 +314,7 @@ public sealed class CommandProcessor(IMeepleTools tools, IPlanner planner, bool 
                 && plan.Actions.All(action => ReadKinds.Contains(action.Kind)))
             {
                 PendingCommand = fullCommand;
+                PendingQuestion = "De registratie is nog niet compleet. Welke gegevens ontbreken nog?";
                 return new CommandResult("De registratie is nog niet compleet. Welke gegevens ontbreken nog?", count);
             }
             if (RegistrationIntent.IsMatch(fullCommand) && plan.Actions is not null)
@@ -269,6 +331,10 @@ public sealed class CommandProcessor(IMeepleTools tools, IPlanner planner, bool 
             TraceGamePlan("Plan na broncontrole", plan, onTrace);
             Validate(plan, catalog, fullCommand, readOnly);
             PendingCommand = null;
+            PendingQuestion = null;
+            PendingChoices = [];
+            PendingSearchName = null;
+            RejectedBggIds = [];
             foreach (var action in plan.Actions)
             {
                 var message = await Execute(action, catalog, ct);
@@ -283,6 +349,8 @@ public sealed class CommandProcessor(IMeepleTools tools, IPlanner planner, bool 
         {
             onTrace?.Invoke($"Spelgegevens of andere registratiegegevens afgewezen: {ex.Message}");
             PendingCommand = fullCommand;
+            PendingQuestion = ex.Message;
+            PendingChoices = ex.Choices;
             var count = (planner as IRequestCounter)?.RequestCount - countBefore ?? 1;
             return new CommandResult(ex.Message, count);
         }
