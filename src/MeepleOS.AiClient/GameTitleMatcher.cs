@@ -41,6 +41,15 @@ internal static class GameTitleMatcher
         return best <= Math.Max(2, wanted.Length) ? best : null;
     }
 
+    public static int? SearchScore(string? query, string? title)
+    {
+        var score = Score(query, title);
+        if (score.HasValue || title is null) return score;
+        var subtitle = title.IndexOf(':');
+        return subtitle > 0 && Score(query, title[..subtitle]) is { } prefix
+            ? prefix + 1 : null;
+    }
+
     public static string PageTitle(string title) =>
         Regex.Split(title, @"\s+[|–-]\s+|\s*\(\d{4}\)")[0].Trim();
 

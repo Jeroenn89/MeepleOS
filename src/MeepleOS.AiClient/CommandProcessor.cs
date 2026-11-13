@@ -58,8 +58,14 @@ public sealed class CommandProcessor(IMeepleTools tools, IPlanner planner, bool 
             var plan = await planner.PlanAsync(plannerCommand, catalog, today, ct);
             if (knownGame is null)
             {
-                var plannedName = (plan.Actions ?? []).Select(action => action.Kind == "add_boardgame" ? action.Name
-                    : action.Kind == "record_session" ? action.Boardgame : null)
+                var plannedName = (plan.Actions ?? []).Select(action => action.Kind switch
+                    {
+                        "add_boardgame" => action.Name,
+                        "record_session" => action.Boardgame,
+                        "update_boardgame" or "delete_boardgame" => catalog.Boardgames
+                            .FirstOrDefault(game => game.Id == action.Id)?.Name,
+                        _ => null
+                    })
                     .FirstOrDefault(name => !string.IsNullOrWhiteSpace(name));
                 if (plannedName is not null)
                 {
@@ -86,6 +92,7 @@ public sealed class CommandProcessor(IMeepleTools tools, IPlanner planner, bool 
             var originalPlan = plan;
             IReadOnlyList<GameSearchHit> searchHits = [];
             string? verifiedGameName = null;
+            string? verifiedRequestedName = null;
             if (!readOnly && gameSearch is not null && PlanSafety.NeedsGameFacts(fullCommand))
             {
                 var newGame = (plan.Actions ?? []).Select(a => a.Kind == "add_boardgame" ? a.Name
@@ -117,8 +124,9 @@ public sealed class CommandProcessor(IMeepleTools tools, IPlanner planner, bool 
                     searchHits = await gameSearch.SearchAsync(newGame, missing, ct);
                     if (searchHits.FirstOrDefault(hit => TavilyGameSearch.IsMatchingBgg(hit, newGame)) is { } bggHit)
                     {
-                        var title = GameTitleMatcher.PageTitle(bggHit.Title);
+                        var title = TavilyGameSearch.BggTitle(bggHit, newGame);
                         verifiedGameName = BoardgameMention.FindByName(catalog, title).Game?.Name ?? title;
+                        verifiedRequestedName = newGame;
                         onTrace?.Invoke($"BGG-spelnaam voor {newGame}: {verifiedGameName}.");
                     }
                     if (gameSearch is not TavilyGameSearch { IsConfigured: false })
@@ -153,10 +161,10 @@ public sealed class CommandProcessor(IMeepleTools tools, IPlanner planner, bool 
                         foreach (var fact in missing.Where(fact => !GameSearchEvidence.HasFact(searchHits, fact)))
                             onTrace($"Tavily-gegeven ontbreekt: {fact}; geen bronfragment met een getal bij dit onderwerp.");
                     }
-                    if (searchHits.Count == 1
-                        && Uri.TryCreate(searchHits[0].Url, UriKind.Absolute, out var sourceUri)
-                        && (sourceUri.Host.Equals("boardgamegeek.com", StringComparison.OrdinalIgnoreCase)
-                            || sourceUri.Host.Equals("www.boardgamegeek.com", StringComparison.OrdinalIgnoreCase))
+                    if (searchHits.Count > 0
+                        && searchHits.All(hit => TavilyGameSearch.IsMatchingBgg(hit, newGame))
+                        && searchHits.Select(TavilyGameSearch.BggId).Distinct().Count() == 1
+                        && !TavilyGameSearch.NeedsNameReview(searchHits[0], newGame)
                         && missing.All(fact => GameSearchEvidence.HasFact(searchHits, fact))
                         && originalPlan.Actions is { Count: > 0 }
                         && (!Regex.IsMatch(fullCommand, @"\b(?:gespeeld|speelde)\b", RegexOptions.IgnoreCase)
@@ -184,7 +192,10 @@ public sealed class CommandProcessor(IMeepleTools tools, IPlanner planner, bool 
                                 && action.Boardgame is not null && ContainsGameName(action.Boardgame, newGame)))
                                 action.Boardgame = newGame;
                         }
-                        if (GameSearchEvidence.Extract(searchHits).Complete
+                        if (!string.IsNullOrWhiteSpace(sourcedPlan.Question)
+                            && !MissingFactsQuestion.IsMatch(sourcedPlan.Question))
+                            plan = sourcedPlan;
+                        else if (GameSearchEvidence.Extract(searchHits).Complete
                             && originalPlan.Actions is { Count: > 0 })
                         {
                             if (sourcedPlan.Actions is null || sourcedPlan.Actions.All(action => ReadKinds.Contains(action.Kind)))
@@ -208,7 +219,8 @@ public sealed class CommandProcessor(IMeepleTools tools, IPlanner planner, bool 
                         else plan = sourcedPlan;
                         if (GameSearchEvidence.Extract(searchHits) is { Complete: true } facts
                             && (plan.Actions is null || plan.Actions.Count == 0)
-                            && !string.IsNullOrWhiteSpace(plan.Question))
+                            && !string.IsNullOrWhiteSpace(plan.Question)
+                            && MissingFactsQuestion.IsMatch(plan.Question))
                         {
                             onTrace?.Invoke("Gemini vroeg opnieuw naar gevonden spelgegevens; plan met vastgestelde waarden herhaald.");
                             plan = await planner.PlanAsync(
@@ -223,9 +235,11 @@ public sealed class CommandProcessor(IMeepleTools tools, IPlanner planner, bool 
             if (verifiedGameName is not null && plan.Actions is not null)
                 foreach (var action in plan.Actions)
                 {
-                    if (action.Kind == "add_boardgame" && GameTitleMatcher.Score(action.Name, verifiedGameName).HasValue)
+                    if (action.Kind == "add_boardgame" && (GameTitleMatcher.SearchScore(action.Name, verifiedGameName).HasValue
+                        || GameTitleMatcher.SearchScore(action.Name, verifiedRequestedName).HasValue))
                         action.Name = verifiedGameName;
-                    if (action.Kind == "record_session" && GameTitleMatcher.Score(action.Boardgame, verifiedGameName).HasValue)
+                    if (action.Kind == "record_session" && (GameTitleMatcher.SearchScore(action.Boardgame, verifiedGameName).HasValue
+                        || GameTitleMatcher.SearchScore(action.Boardgame, verifiedRequestedName).HasValue))
                         action.Boardgame = verifiedGameName;
                 }
             var count = (planner as IRequestCounter)?.RequestCount - countBefore ?? 1;

@@ -12,6 +12,16 @@ if (args.Contains("--source-unit-tests", StringComparer.OrdinalIgnoreCase))
     await RunSourceTests(includeMcp: false);
     return;
 }
+if (args.Contains("--name-tests", StringComparer.OrdinalIgnoreCase))
+{
+    await RunNameTests();
+    return;
+}
+if (args.Contains("--search-tests", StringComparer.OrdinalIgnoreCase))
+{
+    await RunSearchTests();
+    return;
+}
 
 var passed = 0;
 {
@@ -857,6 +867,172 @@ async Task CheckGeminiLedger(string directory)
 
 static int CountLedger(string path) => JsonSerializer.Deserialize<List<DateTimeOffset>>(File.ReadAllText(path))!.Count;
 
+async Task RunNameTests()
+{
+    const string canonical = "The Castles of Burgundy";
+    var count = 0;
+    foreach (var typed in new[] { "castle of burgundy", "castle of burguny", "burgundy" })
+    {
+        var tools = new FakeTools { IncludeElDorado = false };
+        tools.ExtraBoardgames.Add(new Item(20, canonical));
+        var search = new FakeGameSearch();
+        var planner = new SequencePlanner(new Plan { Actions = [
+            new ActionPlan { Kind = "add_boardgame", Name = typed },
+            Session(typed, ["Jeroen", "Pallas", "Klaas"], ["Jeroen"])
+        ] });
+        var result = await new CommandProcessor(tools, planner, gameSearch: search)
+            .RunAsync($"Registreer een potje {typed} met mij, Pallas en Klaas. Ik heb vandaag gewonnen.",
+                new DateOnly(2026, 11, 13));
+        if (!result.Message.Contains($"Potje {canonical} geregistreerd") || search.Calls != 0
+            || tools.Calls.Contains("add_boardgame") || tools.LastRecord?.GetProperty("boardGameId").GetInt32() != 20
+            || !tools.Calls.Contains("add_player"))
+            throw new Exception($"Bestaand spel '{typed}' werd niet geregistreerd: {result.Message}");
+        count++;
+    }
+    foreach (var (command, action) in new[]
+    {
+        ("Voeg castle of burguny toe.", new ActionPlan { Kind = "add_boardgame", Name = "castle of burguny" }),
+        ("Wijzig het bordspel castle of burgundy. Speelduur 100 minuten.",
+            new ActionPlan { Kind = "update_boardgame", Id = 8, ChangesJson = "{\"estimatedMinutes\":100}" }),
+        ("Verwijder het bordspel castle of burgundy.",
+            new ActionPlan { Kind = "delete_boardgame", Id = 8 })
+    })
+    {
+        var tools = new FakeTools { IncludeElDorado = false };
+        tools.ExtraBoardgames.Add(new Item(20, canonical));
+        var result = await new CommandProcessor(tools, new SequencePlanner(new Plan { Actions = [action] }))
+            .RunAsync(command, new DateOnly(2026, 11, 13));
+        if (tools.Calls.Contains("add_boardgame")
+            || action.Kind == "add_boardgame" && !result.Message.Contains("Geen actie nodig")
+            || action.Kind != "add_boardgame" && tools.LastBoardgameMutation?.GetProperty("id").GetInt32() != 20)
+            throw new Exception($"Bestaand spel bij {action.Kind} verkeerd gekoppeld: {result.Message}");
+        count++;
+    }
+    {
+        var tools = new FakeTools { IncludeElDorado = false };
+        tools.ExtraBoardgames.Add(new Item(20, canonical));
+        var result = await new CommandProcessor(tools, new SequencePlanner(new Plan { Actions = [
+            new ActionPlan { Kind = "delete_boardgame", Id = 20 },
+            new ActionPlan { Kind = "delete_boardgame", Id = 8 }
+        ] })).RunAsync("Verwijder The Castles of Burgundy en Munchkin.", new DateOnly(2026, 11, 13));
+        if (tools.BoardgameMutationIds.Count != 2 || !tools.BoardgameMutationIds.SequenceEqual([20, 8]))
+            throw new Exception($"Meerdere doelspellen kregen hetzelfde ID: {result.Message}");
+        count++;
+    }
+    {
+        var tools = new FakeTools { IncludeElDorado = false };
+        tools.ExtraBoardgames.Add(new Item(20, canonical));
+        var result = await new CommandProcessor(tools,
+            new SequencePlanner(new Plan { Actions = [Session(canonical, ["Jeroen", "Pallas"], ["Jeroen"])] }))
+            .RunAsync("Ik speelde Qwizzle met Pallas; ik won.", new DateOnly(2026, 11, 13));
+        if (!result.Message.Contains("Welk bordspel bedoel je") || tools.Calls.Contains("record_game_session"))
+            throw new Exception($"Onverwante Gemini-spelnaam werd geaccepteerd: {result.Message}");
+        count++;
+    }
+    Console.WriteLine($"{count} gerichte bordspelnaamtests geslaagd.");
+}
+
+async Task RunSearchTests()
+{
+    var count = 0;
+    async Task Registration(string typed, string canonical, int id, int min, int max, int minutes,
+        Func<string, GameSearchHit[]> results, int expectedQueries, bool reviewName = false)
+    {
+        var handler = new ScriptedTavilyHandler(results);
+        using var http = new HttpClient(handler);
+        var tools = new FakeTools { IncludeElDorado = false };
+        var plans = new List<Plan> { new() { Actions = [Session(typed, ["Jeroen", "Pallas"], ["Jeroen"])] } };
+        if (reviewName)
+            plans.Add(new Plan { Actions = [Session(canonical, ["Jeroen", "Pallas"], ["Jeroen"])] });
+        var planner = new SequencePlanner(plans.ToArray());
+        var result = await new CommandProcessor(tools, planner, gameSearch: new TavilyGameSearch(http, "mock-key"))
+            .RunAsync($"Ik speelde {typed} met Pallas; ik won.", new DateOnly(2026, 11, 13));
+        if (handler.Queries.Count != expectedQueries || planner.RequestCount != (reviewName ? 2 : 1)
+            || tools.LastBoardgame?.GetProperty("name").GetString() != canonical
+            || tools.LastBoardgame?.GetProperty("minPlayers").GetInt32() != min
+            || tools.LastBoardgame?.GetProperty("maxPlayers").GetInt32() != max
+            || tools.LastBoardgame?.GetProperty("estimatedMinutes").GetInt32() != minutes
+            || !result.Message.Contains($"boardgamegeek.com/boardgame/{id}"))
+            throw new Exception($"BGG-zoekroute voor {typed} faalde: {result.Message}");
+        count++;
+    }
+
+    await Registration("Wink", "WINK", 13507, 3, 8, 20, query =>
+        query.Contains("/13507")
+            ? [new("WINK (1994) | BoardGameGeek", "https://boardgamegeek.com/boardgame/13507/wink",
+                "3-8 Players. Play Time: 20 Min.")]
+            : [new("Wink: Nest of Spies | BoardGameGeek",
+                    "https://boardgamegeek.com/boardgame/320383/wink-nest-of-spies", "2-5 Players. Play Time: 30 Min."),
+                new("WINK (1994) | BoardGameGeek",
+                    "https://boardgamegeek.com/boardgame/13507/wink/ratings", "2-5 Players. Play Time: 30 Min.")], 2);
+
+    await Registration("Nunatak", "Nunatak: Temple of Ice", 383158, 1, 4, 45, query =>
+        query.Contains("/383158") || query.Contains("\"Nunatak\"")
+            ? [new("Nunatak: Temple of Ice (2023) | BoardGameGeek",
+                "https://boardgamegeek.com/boardgame/383158/nunatak-temple-of-ice",
+                "1-4 Players. Play Time: 30-45 Min.")]
+            : [new("Nunatak: Temple of Ice (2023) | BoardGameGeek",
+                "https://boardgamegeek.com/boardgame/383158/nunatak-temple-of-ice/ratings",
+                "1-4 Players.")], 2, reviewName: true);
+
+    await Registration("Nunatak: De IJstempel", "Nunatak: Temple of Ice", 383158, 1, 4, 45, _ =>
+        [new("Nunatak: Temple of Ice (2023) | BoardGameGeek",
+            "https://boardgamegeek.com/boardgame/383158/nunatak-temple-of-ice",
+            "Alternate Names Nunatak: De IJstempel + 3 more. 1-4 Players. Play Time: 30-45 Min.")], 1);
+
+    await Registration("Wink", "WINK", 13507, 3, 8, 20, query =>
+        query.Contains("\"Wink\"")
+            ? [new("WINK (1994) | BoardGameGeek", "https://boardgamegeek.com/boardgame/13507/wink",
+                "3-8 Players. Play Time: 20 Min.")]
+            : [new("Wink: Nest of Spies | BoardGameGeek",
+                "https://boardgamegeek.com/boardgame/320383/wink-nest-of-spies",
+                "2-5 Players. Play Time: 30 Min.")], 2);
+
+    {
+        var handler = new ScriptedTavilyHandler(_ =>
+            [new GameSearchHit("Wink: Nest of Spies | BoardGameGeek",
+                "https://boardgamegeek.com/boardgame/320383/wink-nest-of-spies",
+                "2-5 Players. Play Time: 30 Min.")]);
+        using var http = new HttpClient(handler);
+        var tools = new FakeTools { IncludeElDorado = false };
+        var planner = new SequencePlanner(
+            new Plan { Actions = [Session("Wink", ["Jeroen", "Pallas"], ["Jeroen"])] },
+            new Plan { Question = "Welk bordspel bedoel je: Wink of Wink: Nest of Spies?" });
+        var result = await new CommandProcessor(tools, planner, gameSearch: new TavilyGameSearch(http, "mock-key"))
+            .RunAsync("Ik speelde Wink met Pallas; ik won.", new DateOnly(2026, 11, 13));
+        if (!result.Message.Contains("Welk bordspel bedoel je") || tools.Calls.Contains("add_boardgame")
+            || handler.Queries.Count != 2 || planner.RequestCount != 2)
+            throw new Exception($"Onzekere Wink-variant werd zonder verduidelijking toegevoegd: {result.Message}");
+        count++;
+    }
+
+    {
+        var trace = new List<string>();
+        var handler = new ScriptedTavilyHandler(query => query.Contains("site:boardgamegeek.com/boardgame/")
+            ? [new GameSearchHit("Unrelated expansion", "https://boardgamegeek.com/boardgameexpansion/42/unrelated",
+                "2-4 Players. Play Time: 30 Min.")]
+            : []);
+        using var http = new HttpClient(handler);
+        await new TavilyGameSearch(http, "mock-key", trace.Add).SearchAsync("Wink");
+        if (trace.All(line => !line.Contains("resultaten, maar geen passend basisspel")))
+            throw new Exception("Afgewezen zoekresultaten werden als lege zoekopdracht gemeld.");
+        count++;
+    }
+
+    {
+        var trace = new List<string>();
+        var handler = new ScriptedTavilyHandler(_ => []);
+        using var http = new HttpClient(handler);
+        await new TavilyGameSearch(http, "mock-key", trace.Add).SearchAsync("Wink");
+        if (trace.All(line => !line.Contains("BGG-zoekopdracht gaf geen resultaten"))
+            || handler.Queries.Distinct(StringComparer.OrdinalIgnoreCase).Count() != handler.Queries.Count)
+            throw new Exception("Lege resultaten of de gerichte zoekstrategie werden niet correct verwerkt.");
+        count++;
+    }
+
+    Console.WriteLine($"{count} gerichte zoektests geslaagd.");
+}
+
 async Task RunSourceTests(bool includeMcp)
 {
     var count = 0;
@@ -1162,6 +1338,8 @@ sealed class FakeTools : IMeepleTools
     public List<string> Calls { get; } = [];
     public JsonElement? LastRecord { get; private set; }
     public JsonElement? LastBoardgame { get; private set; }
+    public JsonElement? LastBoardgameMutation { get; private set; }
+    public List<int> BoardgameMutationIds { get; } = [];
     public bool FailRecord { get; set; }
     public bool ExistingSession { get; set; }
     public bool IncludeElDorado { get; set; } = true;
@@ -1193,6 +1371,8 @@ sealed class FakeTools : IMeepleTools
             LastRecord = args;
         }
         if (tool == "add_boardgame") LastBoardgame = args;
+        if (tool is "update_boardgame" or "delete_boardgame") LastBoardgameMutation = args;
+        if (tool is "update_boardgame" or "delete_boardgame") BoardgameMutationIds.Add(args.GetProperty("id").GetInt32());
         return Task.FromResult(JsonSerializer.SerializeToElement(response));
     }
 }

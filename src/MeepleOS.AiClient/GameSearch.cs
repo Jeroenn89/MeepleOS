@@ -17,7 +17,7 @@ public interface IGameSearch
 
 public sealed class TavilyGameSearch(HttpClient http, string apiKey, Action<string>? onTrace = null) : IGameSearch
 {
-    private static readonly Regex Alias = new(@"\b(?:also\s+known\s+as|alternative\s+(?:name|title)|alternatieve\s+(?:naam|titel)|ook\s+bekend\s+als)\s*:?\s*(?<name>[^.;\r\n|]+)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex Alias = new(@"\b(?:also\s+known\s+as|alternat(?:e|ive)\s+(?:names?|titles?)|alternatieve\s+(?:namen?|titels?)|ook\s+bekend\s+als)\s*:?\s*(?<name>[^.;+\r\n|]+)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     public bool IsConfigured => !string.IsNullOrWhiteSpace(apiKey);
     public async Task<IReadOnlyList<GameSearchHit>> SearchAsync(string game, CancellationToken ct = default)
         => await SearchAsync(game, ["minimumaantal spelers", "maximumaantal spelers", "speelduur"], ct);
@@ -30,23 +30,51 @@ public sealed class TavilyGameSearch(HttpClient http, string apiKey, Action<stri
         if (missingFacts.Any(fact => fact.Contains("speelduur", StringComparison.OrdinalIgnoreCase))) terms.Add("playing time minutes");
         if (terms.Count == 0) { onTrace?.Invoke("Tavily overgeslagen: geen zoektermen voor de ontbrekende spelgegevens."); return []; }
         var bggResults = await QueryAsync($"site:boardgamegeek.com/boardgame/ {game} {string.Join(" ", terms)}", ct);
+        var queryCount = 1;
         foreach (var hit in bggResults)
-            onTrace?.Invoke($"BGG-kandidaat {hit.Url}: {(IsMatchingBgg(hit, game) ? "basisspel bevestigd" : "geen passende basisspelpagina")}.");
+            onTrace?.Invoke($"BGG-kandidaat {hit.Url}: {(IsMatchingBgg(hit, game) ? "passende spelpagina" : "geen passende spelpagina")}.");
         var bgg = SelectBgg(bggResults, game);
+        if (bgg.Count == 0)
+            onTrace?.Invoke(bggResults.Count == 0
+                ? "BGG-zoekopdracht gaf geen resultaten."
+                : $"BGG-zoekopdracht gaf {bggResults.Count} resultaten, maar geen passend basisspel.");
+        if (bgg.Count > 0 && GameTitleMatcher.Tokens(game, ignoreWords: true).Length == 1
+            && BggScore(bgg[0], game) > 0)
+        {
+            var identity = await QueryAsync($"site:boardgamegeek.com/boardgame/ \"{game}\"", ct);
+            queryCount++;
+            bgg = SelectBgg(bgg.Concat(identity.Where(IsBgg)), game);
+        }
+        var searchedBggId = false;
+        if (bgg.Count > 0 && bgg.All(hit => !IsCanonicalBgg(hit)))
+        {
+            var id = BggId(bgg[0])!.Value;
+            var primary = await QueryAsync($"site:boardgamegeek.com/boardgame/{id} {GameTitleMatcher.PageTitle(bgg[0].Title)} players playing time", ct);
+            queryCount++;
+            bgg = SelectBgg(bgg.Concat(primary.Where(IsBgg)), game);
+            searchedBggId = true;
+        }
         if (missingFacts.All(fact => GameSearchEvidence.HasFact(bgg, fact)))
         {
             onTrace?.Invoke($"BGG leverde alle spelgegevens voor {game}; verdere Tavily-zoekactie overgeslagen.");
             return bgg;
         }
 
-        var general = await QueryAsync($"{game} board game {string.Join(" ", terms)}", ct);
+        var general = await QueryAsync($"\"{game}\" board game publisher {string.Join(" ", terms)}", ct);
+        queryCount++;
         bgg = SelectBgg(bgg.Concat(general.Where(IsBgg)), game);
         var hits = MergeHits(bgg.Concat(general.Where(hit => !IsBgg(hit) && IsMatchingGeneral(hit, game))));
+        if (hits.Count == 0)
+            onTrace?.Invoke(general.Count == 0
+                ? "Ook de algemene zoekopdracht gaf geen resultaten."
+                : $"De algemene zoekopdracht gaf {general.Count} resultaten, maar geen passende spelpagina.");
         if (missingFacts.All(fact => GameSearchEvidence.HasFact(hits, fact))) return hits;
 
         var unresolved = missingFacts.Where(fact => !GameSearchEvidence.HasFact(hits, fact)).ToArray();
-        if (unresolved.Length == 0) return hits;
-        var retry = await QueryAsync($"{game} board game official {string.Join(" ", unresolved.Select(fact => fact == "speelduur" ? "playing time minutes" : "players"))}", ct);
+        if (unresolved.Length == 0 || queryCount >= 4) return hits;
+        var retry = await QueryAsync(bgg.Count > 0 && !searchedBggId
+            ? $"site:boardgamegeek.com/boardgame/{BggId(bgg[0])} {string.Join(" ", unresolved.Select(fact => fact == "speelduur" ? "playing time minutes" : "players"))}"
+            : $"\"{game}\" board game rules {string.Join(" ", unresolved.Select(fact => fact == "speelduur" ? "playing time minutes" : "players"))}", ct);
         bgg = SelectBgg(bgg.Concat(retry.Where(IsBgg)), game);
         return MergeHits(bgg.Concat(hits.Where(hit => !IsBgg(hit)))
             .Concat(retry.Where(hit => !IsBgg(hit) && IsMatchingGeneral(hit, game))));
@@ -55,21 +83,61 @@ public sealed class TavilyGameSearch(HttpClient http, string apiKey, Action<stri
     private static List<GameSearchHit> SelectBgg(IEnumerable<GameSearchHit> results, string game)
     {
         var candidates = results.Where(hit => IsMatchingBgg(hit, game))
-            .OrderBy(hit => GameTitleMatcher.Score(game, GameTitleMatcher.PageTitle(hit.Title))).ToList();
+            .OrderBy(hit => BggScore(hit, game)).ThenByDescending(IsCanonicalBgg).ToList();
         if (candidates.FirstOrDefault() is not { } first) return [];
-        if (candidates.Any(hit => !hit.Url.Equals(first.Url, StringComparison.OrdinalIgnoreCase)
+        var firstId = BggId(first);
+        if (candidates.Any(hit => BggId(hit) != firstId
             && GameTitleMatcher.PageTitle(hit.Title).Equals(GameTitleMatcher.PageTitle(first.Title),
                 StringComparison.OrdinalIgnoreCase)))
             throw new ClarificationNeededException($"Welke editie van {GameTitleMatcher.PageTitle(first.Title)} bedoel je?");
-        var firstScore = GameTitleMatcher.Score(game, GameTitleMatcher.PageTitle(first.Title));
-        var alternatives = candidates.Where(hit => !hit.Url.Equals(first.Url, StringComparison.OrdinalIgnoreCase)
-            && GameTitleMatcher.Score(game, GameTitleMatcher.PageTitle(hit.Title)) <= firstScore + 2)
+        var firstScore = BggScore(first, game);
+        var alternatives = candidates.Where(hit => BggId(hit) != firstId
+            && BggScore(hit, game) == firstScore)
             .Select(hit => GameTitleMatcher.PageTitle(hit.Title))
             .Where(title => !title.Equals(GameTitleMatcher.PageTitle(first.Title), StringComparison.OrdinalIgnoreCase))
             .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         if (alternatives.Length > 0)
             throw new ClarificationNeededException($"Welk bordspel bedoel je: {GameTitleMatcher.PageTitle(first.Title)} of {string.Join(" of ", alternatives)}?");
-        return MergeHits(candidates.Where(hit => hit.Url.Equals(first.Url, StringComparison.OrdinalIgnoreCase)));
+        return MergeHits(candidates.Where(hit => BggId(hit) == firstId));
+    }
+
+    internal static int? BggId(GameSearchHit hit)
+    {
+        if (!IsBgg(hit) || !Uri.TryCreate(hit.Url, UriKind.Absolute, out var uri)) return null;
+        var match = Regex.Match(uri.AbsolutePath, @"^/boardgame/(?<id>\d+)(?:/|$)", RegexOptions.IgnoreCase);
+        return match.Success && int.TryParse(match.Groups["id"].Value, out var id) ? id : null;
+    }
+
+    internal static bool NeedsNameReview(GameSearchHit hit, string game) =>
+        GameTitleMatcher.Tokens(game, ignoreWords: true).Length == 1 && BggScore(hit, game) > 0;
+
+    internal static string BggTitle(GameSearchHit hit, string game)
+    {
+        var title = GameTitleMatcher.PageTitle(hit.Title);
+        if (GameTitleMatcher.SearchScore(game, title).HasValue
+            || Alias.Matches(hit.Content).Any(match => GameTitleMatcher.SearchScore(game, match.Groups["name"].Value).HasValue))
+            return title;
+        var slug = new Uri(hit.Url).AbsolutePath.Split('/').Skip(3).FirstOrDefault() ?? game;
+        return Uri.UnescapeDataString(slug).Replace('-', ' ').Trim();
+    }
+
+    private static bool IsCanonicalBgg(GameSearchHit hit) =>
+        BggId(hit).HasValue && Uri.TryCreate(hit.Url, UriKind.Absolute, out var uri)
+        && Regex.IsMatch(uri.AbsolutePath, @"^/boardgame/\d+(?:/[^/]+)?/?$", RegexOptions.IgnoreCase);
+
+    private static int BggScore(GameSearchHit hit, string game)
+    {
+        var scores = new List<int>();
+        if (GameTitleMatcher.SearchScore(game, GameTitleMatcher.PageTitle(hit.Title)) is { } titleScore)
+            scores.Add(titleScore);
+        if (Uri.TryCreate(hit.Url, UriKind.Absolute, out var uri)
+            && GameTitleMatcher.SearchScore(game,
+                Uri.UnescapeDataString(uri.AbsolutePath.Split('/').Skip(3).FirstOrDefault() ?? "")) is { } slugScore)
+            scores.Add(slugScore);
+        scores.AddRange(Alias.Matches(hit.Content)
+            .Select(match => GameTitleMatcher.SearchScore(game, match.Groups["name"].Value))
+            .Where(score => score.HasValue).Select(score => score!.Value));
+        return scores.Count == 0 ? 100 : scores.Min();
     }
 
     private static List<GameSearchHit> MergeHits(IEnumerable<GameSearchHit> hits) => hits
@@ -131,13 +199,13 @@ public sealed class TavilyGameSearch(HttpClient http, string apiKey, Action<stri
     internal static bool IsMatchingBgg(GameSearchHit hit, string game)
     {
         if (!IsBgg(hit) || !Uri.TryCreate(hit.Url, UriKind.Absolute, out var uri)
-            || !Regex.IsMatch(uri.AbsolutePath, @"^/boardgame/\d+/[^/]+/?$", RegexOptions.IgnoreCase)) return false;
+            || BggId(hit) is null) return false;
         if (Regex.IsMatch(hit.Title, @"\b(?:expansion|uitbreiding)\b", RegexOptions.IgnoreCase)) return false;
         var title = GameTitleMatcher.PageTitle(hit.Title);
-        var slug = Uri.UnescapeDataString(uri.AbsolutePath.TrimEnd('/').Split('/').Last());
-        return GameTitleMatcher.Score(game, title).HasValue
-            || GameTitleMatcher.Score(game, slug).HasValue
-            || Alias.Matches(hit.Content).Any(match => GameTitleMatcher.Score(game, match.Groups["name"].Value).HasValue);
+        var slug = Uri.UnescapeDataString(uri.AbsolutePath.Split('/').Skip(3).FirstOrDefault() ?? "");
+        return GameTitleMatcher.SearchScore(game, title).HasValue
+            || GameTitleMatcher.SearchScore(game, slug).HasValue
+            || Alias.Matches(hit.Content).Any(match => GameTitleMatcher.SearchScore(game, match.Groups["name"].Value).HasValue);
     }
 
     private static bool IsMatchingGeneral(GameSearchHit hit, string game)
@@ -145,9 +213,9 @@ public sealed class TavilyGameSearch(HttpClient http, string apiKey, Action<stri
         if (!Uri.TryCreate(hit.Url, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps
             || uri.AbsolutePath.Trim('/').Length == 0) return false;
         if (Regex.IsMatch(hit.Title + " " + uri.AbsolutePath, @"\b(?:expansion|uitbreiding)\b", RegexOptions.IgnoreCase)) return false;
-        return GameTitleMatcher.Score(game, GameTitleMatcher.PageTitle(hit.Title)).HasValue
-            || GameTitleMatcher.Score(game, Uri.UnescapeDataString(uri.AbsolutePath.TrimEnd('/').Split('/').Last())).HasValue
-            || Alias.Matches(hit.Content).Any(match => GameTitleMatcher.Score(game, match.Groups["name"].Value).HasValue);
+        return GameTitleMatcher.SearchScore(game, GameTitleMatcher.PageTitle(hit.Title)).HasValue
+            || GameTitleMatcher.SearchScore(game, Uri.UnescapeDataString(uri.AbsolutePath.TrimEnd('/').Split('/').Last())).HasValue
+            || Alias.Matches(hit.Content).Any(match => GameTitleMatcher.SearchScore(game, match.Groups["name"].Value).HasValue);
     }
 
 }
@@ -184,7 +252,7 @@ internal static class GameSearchEvidence
 
     public static Decision Resolve(IReadOnlyList<GameSearchHit> hits, string fact)
     {
-        foreach (var rank in new[] { 3, 2, 1, 0 })
+        foreach (var rank in new[] { 4, 3, 2, 1, 0 })
         {
             var evidence = hits.Where(hit => Rank(hit) == rank)
                 .Select(hit => (Hit: hit, Values: RawValues([hit], fact), Strength: Strength(hit, fact)))
@@ -311,7 +379,8 @@ internal static class GameSearchEvidence
 
     private static int Rank(GameSearchHit hit)
     {
-        if (IsBgg(hit)) return 3;
+        if (IsBgg(hit)) return Regex.IsMatch(new Uri(hit.Url).AbsolutePath,
+            @"^/boardgame/\d+(?:/[^/]+)?/?$", RegexOptions.IgnoreCase) ? 4 : 3;
         if (!Uri.TryCreate(hit.Url, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps) return -1;
         var host = uri.Host.ToLowerInvariant();
         if (host.StartsWith("publisher.") || Regex.IsMatch(hit.Title, @"\b(?:official\s+publisher|publisher|uitgever)\b", RegexOptions.IgnoreCase)
@@ -324,7 +393,7 @@ internal static class GameSearchEvidence
 
     private static string TierName(int rank) => rank switch
     {
-        3 => "BoardGameGeek", 2 => "uitgever", 1 => "bordspellendatabase", _ => "overige bronnen"
+        4 => "BoardGameGeek", 3 => "BoardGameGeek-subpagina", 2 => "uitgever", 1 => "bordspellendatabase", _ => "overige bronnen"
     };
 
     private static int Strength(GameSearchHit hit, string fact)
@@ -340,5 +409,5 @@ internal static class GameSearchEvidence
     private static bool IsBgg(GameSearchHit hit) => Uri.TryCreate(hit.Url, UriKind.Absolute, out var uri)
         && (uri.Host.Equals("boardgamegeek.com", StringComparison.OrdinalIgnoreCase)
             || uri.Host.Equals("www.boardgamegeek.com", StringComparison.OrdinalIgnoreCase))
-        && Regex.IsMatch(uri.AbsolutePath, @"^/boardgame/\d+/[^/]+/?$", RegexOptions.IgnoreCase);
+        && Regex.IsMatch(uri.AbsolutePath, @"^/boardgame/\d+(?:/|$)", RegexOptions.IgnoreCase);
 }

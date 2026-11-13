@@ -1,6 +1,7 @@
 using MeepleOS.BusinessLayer.Services;
 using MeepleOS.Web.Services;
 using Microsoft.AspNetCore.Components;
+using Microsoft.JSInterop;
 using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.RegularExpressions;
@@ -39,6 +40,17 @@ public partial class Chat
     private string prompt = "";
     private string? pending;
     private bool busy;
+    private ElementReference chatWindow;
+    private bool scrollPending;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!scrollPending)
+            return;
+
+        scrollPending = false;
+        await JS.InvokeVoidAsync("meepleChat.scrollToBottom", chatWindow);
+    }
 
     private async Task Send()
     {
@@ -48,11 +60,13 @@ public partial class Chat
 
         prompt = "";
         messages.Add((true, command));
+        scrollPending = true;
 
         if (DestructiveCommand.IsMatch(command))
         {
             pending = command;
             messages.Add((false, "Deze opdracht kan gegevens definitief wijzigen. Bevestig de tekst hieronder."));
+            scrollPending = true;
             return;
         }
 
@@ -73,6 +87,7 @@ public partial class Chat
     {
         pending = null;
         messages.Add((false, "Opdracht geannuleerd; niets opgeslagen."));
+        scrollPending = true;
     }
     private async Task Execute(string command)
     {
@@ -82,10 +97,12 @@ public partial class Chat
         try
         {
             messages.Add((false, await ChatService.AskAsync(command)));
+            scrollPending = true;
         }
         catch (Exception)
         {
             messages.Add((false, "Er is iets misgegaan. Probeer het opnieuw."));
+            scrollPending = true;
         }
         finally
         {
