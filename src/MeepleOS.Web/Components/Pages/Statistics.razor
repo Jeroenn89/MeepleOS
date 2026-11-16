@@ -2,127 +2,209 @@
 @inject StatisticsService Stats
 @inject BoardgameService Games
 @inject PlayerService Players
+@inject GameSessionService Sessions
+
 <PageTitle>Statistieken · MeepleOS</PageTitle>
-<h1>Statistieken</h1>
-<div class="filters">
-    <label>
-        Periode
-        <select @bind="period">
-            <option value="all">Alles</option>
-            <option value="week">Week</option>
-            <option value="month">Maand</option>
-            <option value="year">Jaar</option>
-            <option value="custom">Eigen bereik</option>
-        </select>
-    </label>
-    @if (period is "week" or "month" or "year")
-    {
-        <label>
-            Jaar
-            <input type="number" @bind="year" />
-        </label>
-    }
-    @if (period == "week")
-    {
-        <label>
-            ISO-week
-            <input type="number" min="1" max="53" @bind="week" />
-        </label>
-    }
-    @if (period == "month")
-    {
-        <label>
-            Maand
-            <input type="number" min="1" max="12" @bind="month" />
-        </label>
-    }
-    @if (period == "custom")
-    {
-        <label>
-            Van
-            <input type="date" @bind="from" />
-        </label>
-        <label>
-            Tot
-            <input type="date" @bind="to" />
-        </label>
-    }
-    <label>
-        Speler
-        <select @bind="playerId">
-            <option value="0">Alle spelers</option>
-            @foreach (var p in players)
-            {
-                <option value="@p.Id">@p.Name</option>
-            }
-        </select>
-    </label>
-    <label>
-        Bordspel
-        <select @bind="gameId">
-            <option value="0">Alle spellen</option>
-            @foreach (var g in games)
-            {
-                <option value="@g.Id">@g.Name</option>
-            }
-        </select>
-    </label>
-    <label>
-        Groepering
-        <select @bind="groupBy">
-            <option value="week">Week</option>
-            <option value="month">Maand</option>
-            <option value="year">Jaar</option>
-        </select>
-    </label>
-    <button @onclick="Apply">Toepassen</button>
+
+<div class="statistics-header">
+    <div>
+        <h1>Statistieken</h1>
+        <p class="intro">Ontdek wat, wanneer en met wie er gespeeld wordt.</p>
+    </div>
+    <a class="button secondary" href="/sessions">Bekijk alle potjes</a>
 </div>
-@if (error is not null)
-{
-    <p class="error">@error</p>
-}
-@if (filtered is not null)
-{
-    <div class="metrics">
-        <div>
-            <strong>@filtered.TotalPlays</strong>
-            <span>potjes</span>
-        </div>
-        <div>
-            <strong>@filtered.Wins</strong>
-            <span>overwinningen</span>
+
+<section class="statistics-filter-panel" aria-label="Statistieken filteren">
+    <div class="statistics-filter-heading">
+        <h2>Verken de speelgeschiedenis</h2>
+        <span>@PeriodDescription</span>
+    </div>
+    <div class="filters statistics-filters">
+        <label>
+            Periode
+            <select @bind="period">
+                <option value="all">Alle tijd</option>
+                <option value="week">Week</option>
+                <option value="month">Maand</option>
+                <option value="year">Jaar</option>
+                <option value="custom">Eigen bereik</option>
+            </select>
+        </label>
+        @if (period is "week" or "month" or "year")
+        {
+            <label>
+                Jaar
+                <input type="number" min="1" max="9999" @bind="year" />
+            </label>
+        }
+        @if (period == "week")
+        {
+            <label>
+                ISO-week
+                <input type="number" min="1" max="53" @bind="week" />
+            </label>
+        }
+        @if (period == "month")
+        {
+            <label>
+                Maand
+                <select @bind="month">
+                    @foreach (var number in Enumerable.Range(1, 12))
+                    {
+                        <option value="@number">@Dutch.DateTimeFormat.GetMonthName(number)</option>
+                    }
+                </select>
+            </label>
+        }
+        @if (period == "custom")
+        {
+            <label>Van <input type="date" @bind="from" /></label>
+            <label>Tot <input type="date" @bind="to" /></label>
+        }
+        <label>
+            Speler
+            <select @bind="playerId">
+                <option value="0">Alle spelers</option>
+                @foreach (var player in players)
+                {
+                    <option value="@player.Id">@player.Name</option>
+                }
+            </select>
+        </label>
+        <label>
+            Bordspel
+            <select @bind="gameId">
+                <option value="0">Alle spellen</option>
+                @foreach (var game in games)
+                {
+                    <option value="@game.Id">@game.Name</option>
+                }
+            </select>
+        </label>
+        <label>
+            Tijdlijn per
+            <select @bind="groupBy">
+                <option value="week">Week</option>
+                <option value="month">Maand</option>
+                <option value="year">Jaar</option>
+            </select>
+        </label>
+        <div class="statistics-filter-actions">
+            <button type="button" @onclick="Apply">Toepassen</button>
+            <button type="button" class="secondary" @onclick="ResetFilters">Wis filters</button>
         </div>
     </div>
+</section>
+
+@if (error is not null)
+{
+    <p class="error" role="alert">@error</p>
+}
+
+@if (filtered is null)
+{
+    @if (error is null)
+    {
+        <p>Laden…</p>
+    }
+}
+else
+{
+    <section class="statistics-overview" aria-label="Kerncijfers">
+        <div class="card statistics-metric"><span>Gespeelde potjes</span><strong>@filtered.TotalPlays</strong><small>In deze selectie</small></div>
+        <div class="card statistics-metric"><span>Verschillende spellen</span><strong>@DistinctGames</strong><small>Gespeeld in deze selectie</small></div>
+        <div class="card statistics-metric"><span>Actieve spelers</span><strong>@ActivePlayers</strong><small>Deelnemers aan geselecteerde potjes</small></div>
+        <div class="card statistics-metric"><span>Overwinningen</span><strong>@filtered.Wins</strong><small>Gedeelde winst telt per speler</small></div>
+        <div class="card statistics-metric"><span>Geschatte speeltijd</span><strong>@EstimatedHours.ToString("0.#", Dutch) <em>uur</em></strong><small>Op basis van de speltijd per bordspel</small></div>
+        <div class="card statistics-metric"><span>Spelers per potje</span><strong>@AveragePlayers.ToString("0.#", Dutch)</strong><small>Gemiddelde groepsgrootte</small></div>
+    </section>
+
     @if (filtered.TotalPlays == 0)
     {
-        <p class="empty">Geen potjes voor deze filters.</p>
+        <div class="card statistics-empty">
+            <h2>Geen potjes in deze selectie</h2>
+            <p>Pas de periode, speler of het bordspel aan om gegevens te zien.</p>
+        </div>
     }
     else
     {
-        <div class="grid">
-            <section class="card">
-                <h2>Potjes door de tijd</h2>
+        <section class="statistics-highlights" aria-label="Opvallende cijfers">
+            <div class="statistics-highlight"><span>Meest gespeeld</span><strong>@TopGame?.BoardGameName</strong><small>@TopGame?.Plays potjes</small></div>
+            <div class="statistics-highlight"><span>Meeste overwinningen</span><strong>@TopWinner?.PlayerName</strong><small>@TopWinner?.Wins keer gewonnen</small></div>
+            <div class="statistics-highlight"><span>Drukste speeldag</span><strong>@BusiestDayLabel</strong><small>@BusiestDayCount potjes</small></div>
+        </section>
+
+        <section class="statistics-trend">
+            <div class="statistics-panel-heading"><div><h2>Speelverloop</h2><p>Zoom in op de potjes binnen je selectie</p></div></div>
+            <PlayLineChart @key="chartVersion" Points="linePoints" Description="Aantal potjes door de tijd binnen de gekozen filters" />
+        </section>
+
+        <div class="statistics-grid">
+            <section class="card statistics-panel statistics-panel-wide">
+                <div class="statistics-panel-heading"><div><h2>Potjes door de tijd</h2><p>Hoe vaak er in elke periode is gespeeld</p></div></div>
                 <BarChart Items="timeBars" />
             </section>
-            <section class="card">
-                <h2>Meest gespeelde spellen</h2>
+            <section class="card statistics-panel">
+                <div class="statistics-panel-heading"><div><h2>Populaire bordspellen</h2><p>De 10 meest gespeelde spellen</p></div></div>
                 <BarChart Items="gameBars" />
             </section>
-            <section class="card">
-                <h2>Overwinningen per speler</h2>
+            <section class="card statistics-panel">
+                <div class="statistics-panel-heading"><div><h2>Potjes per weekdag</h2><p>Welke dagen het vaakst op tafel staan</p></div></div>
+                <BarChart Items="weekdayBars" />
+            </section>
+            <section class="card statistics-panel">
+                <div class="statistics-panel-heading"><div><h2>Overwinningen</h2><p>De 10 spelers met de meeste zeges</p></div></div>
                 <BarChart Items="winBars" />
             </section>
-            <section class="card">
-                <h2>Ranglijst</h2>
-                @foreach (var p in filtered.Players)
-                {
-                    <p>
-                        <a href="/players/@p.PlayerId">@p.PlayerName</a>
-                        · @p.Wins winst / @p.Plays potjes
-                        · @p.WinPercentage.ToString("0.#")%
-                    </p>
-                }
+            <section class="card statistics-panel">
+                <div class="statistics-panel-heading"><div><h2>Deelname</h2><p>De 10 spelers met de meeste potjes</p></div></div>
+                <BarChart Items="playBars" />
             </section>
         </div>
+
+        <section class="card statistics-panel statistics-ranking">
+            <div class="statistics-panel-heading">
+                <div><h2>Spelersranglijst</h2><p>Overwinningen en winstpercentage binnen deze selectie</p></div>
+                <label>Sorteren op
+                    <select @bind="rankingSort">
+                        <option value="wins">Overwinningen</option>
+                        <option value="percentage">Winstpercentage</option>
+                        <option value="plays">Potjes</option>
+                    </select>
+                </label>
+            </div>
+            <div class="statistics-table-scroll">
+                <table class="statistics-table">
+                    <thead><tr><th scope="col">#</th><th scope="col">Speler</th><th scope="col">Potjes</th><th scope="col">Winst</th><th scope="col">Winstpercentage</th></tr></thead>
+                    <tbody>
+                        @foreach (var entry in RankedPlayers.Select((player, index) => new { player, index }))
+                        {
+                            <tr>
+                                <td>@(entry.index + 1)</td>
+                                <th scope="row"><a href="/players/@entry.player.PlayerId">@entry.player.PlayerName</a></th>
+                                <td>@entry.player.Plays</td>
+                                <td>@entry.player.Wins</td>
+                                <td><span class="statistics-percentage">@entry.player.WinPercentage.ToString("0.#", Dutch)%</span></td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <section class="card statistics-panel statistics-recent">
+            <div class="statistics-panel-heading"><div><h2>Recent gespeeld</h2><p>De laatste potjes binnen deze selectie</p></div><a href="/sessions">Alle potjes →</a></div>
+            <div class="statistics-recent-list">
+                @foreach (var session in recentSessions)
+                {
+                    var winners = session.Players.Where(player => player.IsWinner).Select(player => player.PlayerName).ToList();
+                    <a href="/sessions/@session.Id">
+                        <time datetime="@session.PlayedAt.ToString("yyyy-MM-dd")">@session.PlayedAt.ToString("dd MMM yyyy", Dutch)</time>
+                        <strong>@session.BoardGameName</strong>
+                        <span>@(winners.Count == 1 ? "Winnaar" : "Winnaars"): @string.Join(", ", winners)</span>
+                    </a>
+                }
+            </div>
+        </section>
     }
 }

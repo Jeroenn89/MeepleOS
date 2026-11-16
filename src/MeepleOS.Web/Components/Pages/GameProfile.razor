@@ -3,70 +3,95 @@
 @inject GameExpansionService Expansions
 @inject GameSessionService Sessions
 @inject StatisticsService Stats
-<PageTitle>Bordspelprofiel · MeepleOS</PageTitle>
+
+<PageTitle>@(game?.Name ?? "Bordspel") · MeepleOS</PageTitle>
 @if (game is null)
 {
-    <h1>Bordspel niet gevonden</h1>
+    <div class="profile-not-found card">
+        <h1>Bordspel niet gevonden</h1>
+        <a href="/games">Terug naar bordspellen →</a>
+    </div>
 }
 else
 {
-    <p>
-        <a href="/games">← Bordspellen</a>
-    </p>
-    <h1>@game.Name</h1>
-    <p>@game.MinPlayers–@(game.MaxPlayers?.ToString() ?? "∞") spelers · circa @game.EstimatedMinutes minuten</p>
-    <div class="metrics">
+    <a class="profile-back" href="/games">← Alle bordspellen</a>
+    <header class="profile-hero game-profile-hero">
         <div>
-            <strong>@history.Count</strong>
-            <span>potjes</span>
+            <span class="profile-eyebrow">Bordspelprofiel</span>
+            <h1>@game.Name</h1>
+            <div class="game-profile-facts">
+                <span>@game.MinPlayers–@(game.MaxPlayers?.ToString() ?? "∞") spelers</span>
+                <span>Circa @game.EstimatedMinutes minuten</span>
+                <span>@expansions.Count @(expansions.Count == 1 ? "uitbreiding" : "uitbreidingen")</span>
+            </div>
         </div>
-        <div>
-            <strong>@(history.FirstOrDefault()?.PlayedAt.ToString("dd-MM-yyyy") ?? "—")</strong>
-            <span>laatst gespeeld</span>
-        </div>
-    </div>
-    <div class="grid">
-        <section class="card">
-            <h2>Speeltrend</h2>
+        <a class="button secondary" href="/statistics">Bekijk statistieken</a>
+    </header>
+
+    <section class="profile-metrics" aria-label="Bordspelcijfers">
+        <div class="card profile-metric"><span>Gespeelde potjes</span><strong>@history.Count</strong></div>
+        <div class="card profile-metric profile-time-metric"><EstimatedPlayTime Minutes="@((long)history.Count * game.EstimatedMinutes)" /></div>
+        <div class="card profile-metric"><span>Laatst gespeeld</span><strong class="profile-date-value">@(history.Count == 0 ? "—" : history[0].PlayedAt.ToString("dd-MM-yyyy"))</strong></div>
+    </section>
+
+    <div class="profile-grid">
+        <section class="card profile-panel">
+            <div class="profile-panel-heading"><div><h2>Speeltrend</h2><p>Potjes per maand</p></div></div>
             <BarChart Items="trend" />
         </section>
-        <section class="card">
-            <h2>Vaak deelnemende spelers</h2>
+        <section class="card profile-panel">
+            <div class="profile-panel-heading"><div><h2>Vaste spelers</h2><p>Wie dit spel het vaakst speelt</p></div></div>
             <BarChart Items="participants" />
         </section>
-        <section class="card">
-            <h2>Overwinningen</h2>
+        <section class="card profile-panel">
+            <div class="profile-panel-heading"><div><h2>Overwinningen</h2><p>Winnaars van dit bordspel</p></div></div>
             <BarChart Items="winners" />
-            @foreach (var p in percentages)
+            @if (percentages.Count > 0)
             {
-                <p>
-                    <a href="/players/@p.PlayerId">@p.PlayerName</a>:
-                    @p.Wins / @p.Plays (@p.WinPercentage.ToString("0.#")%)
-                </p>
+                <div class="game-profile-results">
+                    @foreach (var player in percentages)
+                    {
+                        <div><a href="/players/@player.PlayerId">@player.PlayerName</a><span>@player.Wins / @player.Plays winst · @player.WinPercentage.ToString("0.#")%</span></div>
+                    }
+                </div>
             }
         </section>
-        <section class="card">
-            <h2>Uitbreidingen</h2>
+        <section class="card profile-panel">
+            <div class="profile-panel-heading"><div><h2>Uitbreidingen</h2><p>Beschikbaar en gebruikt bij potjes</p></div></div>
             @if (expansions.Count == 0)
             {
-                <p>Geen geregistreerde uitbreidingen.</p>
+                <p class="profile-muted">Geen geregistreerde uitbreidingen.</p>
             }
             else
             {
-                @foreach (var e in expansions)
-                {
-                    <p>@e.Name · @history.Count(s => s.Expansions.Any(x => x.Id == e.Id)) keer gebruikt</p>
-                }
+                <div class="game-profile-expansions">
+                    @foreach (var expansion in expansions)
+                    {
+                        var useCount = history.Count(session => session.Expansions.Any(used => used.Id == expansion.Id));
+                        <div><strong>@expansion.Name</strong><span>@useCount keer gebruikt</span></div>
+                    }
+                </div>
             }
         </section>
-        <section class="card">
-            <h2>Recente potjes</h2>
-            @foreach (var s in history.Take(8))
+        <section class="card profile-panel profile-panel-wide">
+            <div class="profile-panel-heading"><div><h2>Recente potjes</h2><p>De laatste 8 keer dat dit spel op tafel lag</p></div><a href="/sessions">Alle potjes →</a></div>
+            @if (history.Count == 0)
             {
-                <p>
-                    <a href="/sessions/@s.Id">@s.PlayedAt.ToString("dd-MM-yyyy")</a>
-                    · @string.Join(", ", s.Players.Select(p => p.PlayerName))
-                </p>
+                <p class="profile-muted">Dit bordspel is nog niet gespeeld.</p>
+            }
+            else
+            {
+                <div class="profile-record-list game-profile-sessions">
+                    @foreach (var session in history.Take(8))
+                    {
+                        var winners = session.Players.Where(participant => participant.IsWinner).Select(participant => participant.PlayerName).ToList();
+                        <a href="/sessions/@session.Id">
+                            <span class="profile-record-main"><strong>@session.PlayedAt.ToString("dd-MM-yyyy")</strong><small>@string.Join(", ", session.Players.Select(participant => participant.PlayerName))</small></span>
+                            <span class="game-profile-session-win">@(winners.Count == 1 ? "Winnaar" : "Winnaars"): @string.Join(", ", winners)</span>
+                            <span class="profile-record-arrow" aria-hidden="true">→</span>
+                        </a>
+                    }
+                </div>
             }
         </section>
     </div>

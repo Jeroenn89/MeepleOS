@@ -1,0 +1,8 @@
+<div class="playtime-metric">
+    <span>Geschatte speeltijd</span>
+    <strong>≈@FormattedTime</strong>
+    <div class="playtime-unit-switch" role="group" aria-label="Eenheid van de geschatte speeltijd">
+        <button type="button" class="@(showHours ? "selected" : "")" aria-pressed="@showHours" @onclick="() => showHours = true">Uren</button>
+        <button type="button" class="@(showHours ? "" : "selected")" aria-pressed="@(!showHours)" @onclick="() => showHours = false">Minuten</button>
+    </div>
+</div>

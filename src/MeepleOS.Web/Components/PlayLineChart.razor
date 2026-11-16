@@ -1,0 +1,68 @@
+@if (Points.Count == 0)
+{
+    <p class="empty">Nog geen potjes voor deze grafiek.</p>
+}
+else
+{
+    <div class="play-line-chart">
+        <div class="line-chart-toolbar">
+            <span>Zoom</span>
+            @foreach (var option in ZoomOptions)
+            {
+                <button type="button" class="line-zoom @(zoom == option.Key ? "selected" : "")"
+                        aria-pressed="@(zoom == option.Key)" @onclick="() => SetZoom(option.Key)">@option.Label</button>
+            }
+        </div>
+        <div class="line-chart-plot" role="img" aria-label="@Description">
+            <svg viewBox="0 0 1000 320" preserveAspectRatio="none" aria-hidden="true">
+                <defs>
+                    <linearGradient id="@gradientId" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stop-color="#519e78" stop-opacity=".22" />
+                        <stop offset="100%" stop-color="#519e78" stop-opacity="0" />
+                    </linearGradient>
+                </defs>
+                @foreach (var grid in GridLines)
+                {
+                    <line x1="48" y1="@grid.Y" x2="966" y2="@grid.Y" class="chart-grid-line" />
+                }
+                @if (VisibleSeries.Count > 0)
+                {
+                    @if (VisibleSeries.Count > 1)
+                    {
+                        <path d="@AreaPath" fill="url(#@gradientId)" />
+                    }
+                    <path d="@LinePath" class="chart-main-line" />
+                    @foreach (var point in VisibleSeries)
+                    {
+                        <circle cx="@point.X" cy="@point.Y" r="11" class="chart-hit">
+                            <title>@point.Label: @point.Value potje@(point.Value == 1 ? "" : "s")</title>
+                        </circle>
+                    }
+                    @if (VisibleSeries.Count == 1)
+                    {
+                        <circle cx="@VisibleSeries[0].X" cy="@VisibleSeries[0].Y" r="4" class="chart-point" />
+                    }
+                }
+            </svg>
+            @foreach (var grid in GridLines)
+            {
+                <span class="chart-value-label" style="top:@Percent(100 * grid.Y / 320)%">@grid.Value</span>
+            }
+            @foreach (var tick in AxisLabels)
+            {
+                <span class="chart-date-label" style="left:@Percent(100 * tick.X / 1000)%">@tick.Label</span>
+            }
+        </div>
+        <div class="line-chart-overview" aria-hidden="true">
+            <svg viewBox="0 0 1000 72" preserveAspectRatio="none">
+                <path d="@OverviewPath" class="chart-overview-line" />
+            </svg>
+            <div class="line-chart-selection" style="left:@Percent(SelectionLeft)%;width:@Percent(SelectionWidth)%"></div>
+        </div>
+        <div class="line-chart-range">
+            <label>Van <input type="date" value="@from.ToString("yyyy-MM-dd")" min="@MinDate.ToString("yyyy-MM-dd")" max="@to.ToString("yyyy-MM-dd")" @onchange="ChangeFrom" /></label>
+            <label>Tot <input type="date" value="@to.ToString("yyyy-MM-dd")" min="@from.ToString("yyyy-MM-dd")" max="@MaxDate.ToString("yyyy-MM-dd")" @onchange="ChangeTo" /></label>
+        </div>
+        <div class="line-chart-legend"><span></span> Potjes</div>
+    </div>
+}

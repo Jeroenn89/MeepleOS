@@ -3,24 +3,74 @@
 @inject StatisticsService Stats
 <PageTitle>Spelers · MeepleOS</PageTitle>
 <h1>Spelers</h1>
-<label>
-    Zoeken
-    <input @bind="search" @bind:event="oninput" placeholder="Spelersnaam" />
-</label>
+<div class="filters player-collection-filters">
+    <label>
+        Zoeken
+        <input @bind="search" @bind:event="oninput" placeholder="Spelersnaam" />
+    </label>
+    <label>
+        Sorteren op
+        <select @bind="sortBy">
+            <option value="none">Alfabetisch</option>
+            <option value="wins">Meeste overwinningen</option>
+            <option value="winPercentage">Hoogste winstpercentage</option>
+            <option value="plays">Meeste potjes</option>
+        </select>
+    </label>
+</div>
 @if (players is null)
 {
     <p>Laden…</p>
 }
 else
 {
-    <div class="grid">
-        @foreach (var player in players.Where(MatchesSearch))
+    <div class="game-collection-grid single-column-list">
+        @foreach (var player in VisiblePlayers)
         {
-            var statistics = stats!.First(stat => stat.PlayerId == player.Id);
-            <article class="card">
-                <h2><a href="/players/@player.Id">@player.Name</a></h2>
-                <p>@statistics.Plays potjes · @statistics.Wins overwinningen · @statistics.WinPercentage.ToString("0.#")%</p>
-            </article>
+            var statistics = statsByPlayer[player.Id];
+            <a class="card game-collection-card player-collection-card" href="/players/@player.Id">
+                <div class="player-collection-identity">
+                    <span class="player-collection-avatar" aria-hidden="true">@player.Name[..1].ToUpperInvariant()</span>
+                    <h2>@player.Name</h2>
+                </div>
+                <div class="player-collection-stats">
+                    <div class="player-collection-stat">
+                        <span class="player-rank-slot">
+                            @if (playRanks.TryGetValue(player.Id, out var playRank))
+                            {
+                                <span class="player-rank player-rank-@playRank" title="@($"{playRank}e plaats bij potjes")"><span aria-hidden="true">🏆</span> @playRank.ToString()e</span>
+                            }
+                        </span>
+                        <strong>@statistics.Plays</strong>
+                        <span>Potjes</span>
+                    </div>
+                    <div class="player-collection-stat player-collection-winrate">
+                        <span class="player-rank-slot">
+                            @if (winRateRanks.TryGetValue(player.Id, out var winRateRank))
+                            {
+                                <span class="player-rank player-rank-@winRateRank" title="@($"{winRateRank}e plaats bij winstpercentage")"><span aria-hidden="true">🏆</span> @winRateRank.ToString()e</span>
+                            }
+                        </span>
+                        <strong>@statistics.WinPercentage.ToString("0.#")%</strong>
+                        <span>Winstpercentage</span>
+                        <span class="player-winrate-track" aria-hidden="true"><span style="width:@((int)Math.Round(statistics.WinPercentage))%"></span></span>
+                    </div>
+                    <div class="player-collection-stat">
+                        <span class="player-rank-slot">
+                            @if (winRanks.TryGetValue(player.Id, out var winRank))
+                            {
+                                <span class="player-rank player-rank-@winRank" title="@($"{winRank}e plaats bij overwinningen")"><span aria-hidden="true">🏆</span> @winRank.ToString()e</span>
+                            }
+                        </span>
+                        <strong>@statistics.Wins</strong>
+                        <span>Overwinningen</span>
+                    </div>
+                </div>
+            </a>
         }
     </div>
+    @if (!VisiblePlayers.Any())
+    {
+        <p class="empty">Geen spelers gevonden.</p>
+    }
 }

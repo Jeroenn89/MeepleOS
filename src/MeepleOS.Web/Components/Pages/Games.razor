@@ -1,21 +1,20 @@
 @page "/games"
 @inject BoardgameService GameService
-@inject GameExpansionService ExpansionService
 @inject GameSessionService SessionService
 <PageTitle>Bordspellen · MeepleOS</PageTitle>
 <h1>Bordspelcollectie</h1>
-<div class="filters">
+<div class="filters game-collection-filters">
     <label>
         Zoeken
-        <input @bind="search" @bind:event="oninput" placeholder="Naam bordspel" />
+        <input @bind="search" @bind:event="oninput" placeholder="Naam bordspel?" />
     </label>
     <label>
         Spelers
-        <input type="number" min="1" @bind="players" />
+        <input type="number" min="1" @bind="players" placeholder="Met hoeveel spelers?" />
     </label>
     <label>
         Max. minuten
-        <input type="number" min="1" @bind="minutes" />
+        <input type="number" min="1" @bind="minutes" placeholder="Maximale speeltijd" />
     </label>
 </div>
 @if (games is null)
@@ -24,17 +23,30 @@
 }
 else
 {
-    <div class="grid">
+    <div class="game-collection-grid">
         @foreach (var game in games.Where(MatchesFilters))
         {
-            <article class="card">
-                <h2>
-                    <a href="/games/@game.Id">@game.Name</a>
-                </h2>
-                <p>@game.MinPlayers–@(game.MaxPlayers?.ToString() ?? "∞") spelers · circa @game.EstimatedMinutes min.</p>
-                <p>@sessions!.Count(s => s.BoardGameId == game.Id) potjes</p>
-                <small>@string.Join(", ", expansions!.Where(e => e.BoardGameId == game.Id).Select(e => e.Name))</small>
-            </article>
+            var playCount = playCounts.GetValueOrDefault(game.Id);
+            <a class="card game-collection-card" href="/games/@game.Id" aria-label="@game.Name, @(playCount == 0 ? "nog niet gespeeld" : $"{playCount} keer gespeeld")">
+                <h2>@game.Name</h2>
+                <div class="game-collection-details">
+                    <div class="game-collection-facts">
+                        <span>@game.MinPlayers–@(game.MaxPlayers?.ToString() ?? "∞") spelers</span>
+                        <span>≈@game.EstimatedMinutes min.</span>
+                    </div>
+                    <div class="game-collection-plays">
+                        @if (playCount == 0)
+                        {
+                            <span class="game-collection-unplayed">Nog niet<br>gespeeld</span>
+                        }
+                        else
+                        {
+                            <strong>@playCount</strong>
+                            <span>keer gespeeld</span>
+                        }
+                    </div>
+                </div>
+            </a>
         }
     </div>
     @if (!games.Any(MatchesFilters))

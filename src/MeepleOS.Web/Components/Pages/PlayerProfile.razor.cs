@@ -10,6 +10,7 @@ public partial class PlayerProfile
 
     private PlayerResult? player;
     private List<GameSessionResult> history = [];
+    private List<GameSessionResult> scoredSessions = [];
     private List<ChartItem> gameBars = [];
     private int wins;
     private double percentage;
@@ -20,7 +21,9 @@ public partial class PlayerProfile
         if (player is null)
             return;
 
-        history = await Sessions.GetAllAsync(playerId: Id);
+        history = (await Sessions.GetAllAsync(playerId: Id))
+            .OrderByDescending(session => session.PlayedAt).ThenByDescending(session => session.Id).ToList();
+        scoredSessions = history.Where(session => session.Players.Any(participant => participant.PlayerId == Id && participant.Score.HasValue)).ToList();
         var statistics = (await Stats.GetPlayerStatisticsAsync(playerId: Id)).Single();
         wins = statistics.Wins;
         percentage = statistics.WinPercentage;

@@ -3,25 +3,32 @@
 @inject BoardgameService GameService
 @inject PlayerService PlayerService
 <PageTitle>Potjes · MeepleOS</PageTitle>
-<h1>Speelgeschiedenis</h1>
-<div class="filters">
+<div class="sessions-heading">
+    <div>
+        <h1>Speelgeschiedenis</h1>
+        <p class="intro">Alle gespeelde potjes op een rij.</p>
+    </div>
+    <a class="button" href="/manage">Potje invoeren</a>
+</div>
+
+<div class="filters sessions-filters">
     <label>
         Bordspel
         <select @bind="gameId">
-            <option value="0">Alle</option>
-            @foreach (var g in games)
+            <option value="0">Alle bordspellen</option>
+            @foreach (var game in games)
             {
-                <option value="@g.Id">@g.Name</option>
+                <option value="@game.Id">@game.Name</option>
             }
         </select>
     </label>
     <label>
         Speler
         <select @bind="playerId">
-            <option value="0">Alle</option>
-            @foreach (var p in players)
+            <option value="0">Alle spelers</option>
+            @foreach (var player in players)
             {
-                <option value="@p.Id">@p.Name</option>
+                <option value="@player.Id">@player.Name</option>
             }
         </select>
     </label>
@@ -32,16 +39,44 @@
 }
 else
 {
-    <div class="grid">
-        @foreach (var s in history.Where(MatchesFilters))
-        {
-            <article class="card">
-                <h2>
-                    <a href="/sessions/@s.Id">@s.BoardGameName</a>
-                </h2>
-                <p>@s.PlayedAt.ToString("dd-MM-yyyy") · @string.Join(", ", s.Players.Select(p => p.PlayerName))</p>
-                <p>Winnaar(s): @string.Join(", ", s.Players.Where(p => p.IsWinner).Select(p => p.PlayerName))</p>
-            </article>
-        }
+    var visibleSessions = VisibleSessions;
+    <div class="sessions-list-heading">
+        <h2>Potjes</h2>
+        <span>@visibleSessions.Count @(visibleSessions.Count == 1 ? "resultaat" : "resultaten")</span>
     </div>
+
+    @if (visibleSessions.Count == 0)
+    {
+        <div class="card sessions-empty">
+            <strong>Geen potjes gevonden</strong>
+            <p>@(history.Count == 0 ? "Er zijn nog geen potjes geregistreerd." : "Kies een ander bordspel of een andere speler.")</p>
+        </div>
+    }
+    else
+    {
+        <div class="sessions-list">
+            @foreach (var session in visibleSessions)
+            {
+                var winners = session.Players.Where(player => player.IsWinner).Select(player => player.PlayerName).ToList();
+                <a class="card session-card" href="/sessions/@session.Id" aria-label="@session.BoardGameName, @session.PlayedAt.ToString("dd-MM-yyyy"), winnaar: @string.Join(", ", winners)">
+                    <div class="session-date" aria-hidden="true">
+                        <strong>@session.PlayedAt.ToString("dd")</strong>
+                        <span>@session.PlayedAt.ToString("MMM yyyy", DutchCulture)</span>
+                    </div>
+                    <div class="session-card-content">
+                        <h3>@session.BoardGameName</h3>
+                        <div class="session-card-players">
+                            <span class="session-card-label">Gespeeld met</span>
+                            <span>@string.Join(" · ", session.Players.Select(player => player.PlayerName))</span>
+                        </div>
+                    </div>
+                    <div class="session-card-result">
+                        <span class="session-card-label">@(winners.Count == 1 ? "Winnaar" : "Winnaars")</span>
+                        <strong>@string.Join(", ", winners)</strong>
+                    </div>
+                    <span class="session-card-arrow" aria-hidden="true">→</span>
+                </a>
+            }
+        </div>
+    }
 }

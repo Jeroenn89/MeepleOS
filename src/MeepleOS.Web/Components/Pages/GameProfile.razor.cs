@@ -22,7 +22,8 @@ public partial class GameProfile
         if (game is null)
             return;
 
-        history = await Sessions.GetAllAsync(boardGameId: Id);
+        history = (await Sessions.GetAllAsync(boardGameId: Id))
+            .OrderByDescending(session => session.PlayedAt).ThenByDescending(session => session.Id).ToList();
         expansions = await Expansions.GetAllAsync(Id);
         percentages = (await Stats.GetPlayerStatisticsAsync(boardGameId: Id))
             .Where(player => player.Plays > 0)

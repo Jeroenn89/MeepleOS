@@ -2,47 +2,46 @@
 @inject BoardgameService Games
 @inject PlayerService Players
 @inject GameSessionService Sessions
+
 <PageTitle>Dashboard · MeepleOS</PageTitle>
 <h1>Dashboard</h1>
-<p class="intro">Je bordspelavonden in één overzicht.</p>
 @if (history is null)
 {
     <p>Laden…</p>
 }
 else
 {
-    <div class="metrics">
-        <div>
-            <strong>@history.Count</strong>
-            <span>potjes</span>
-        </div>
-        <div>
-            <strong>@playerCount</strong>
-            <span>spelers</span>
-        </div>
-        <div>
-            <strong>@gameCount</strong>
-            <span>bordspellen</span>
-        </div>
-        <div>
-            <strong>@wins</strong>
-            <span>overwinningen</span>
-        </div>
+    <section class="dashboard-trend">
+        <h2>Speelstatistieken</h2>
+        <PlayLineChart Points="playPoints" />
+    </section>
+
+    <div class="dashboard-metrics">
+        <div class="card"><span>Totaal gespeelde potjes</span><strong>@history.Count</strong></div>
+        <div class="card"><EstimatedPlayTime Minutes="estimatedMinutes" /></div>
+        <div class="card"><span>Aantal bordspellen</span><strong>@gameCount</strong></div>
+        <div class="card"><span>Aantal spelers</span><strong>@playerCount</strong></div>
     </div>
-    <div class="grid">
+
+    <div class="dashboard-grid">
         <section class="card">
-            <h2>Potjes per maand</h2>
-            <BarChart Items="timeBars" />
+            <div class="dashboard-month-head">
+                <h2>Potjes per maand</h2>
+                @if (years.Length > 0)
+                {
+                    <label>Jaar
+                        <select @bind="monthChartYear">
+                            @foreach (var year in years)
+                            {
+                                <option value="@year">@year</option>
+                            }
+                        </select>
+                    </label>
+                }
+            </div>
+            <BarChart Items="MonthBars" />
         </section>
-        <section class="card">
-            <h2>Meest gespeeld</h2>
-            <BarChart Items="gameBars" />
-        </section>
-        <section class="card">
-            <h2>Overwinningen per speler</h2>
-            <BarChart Items="winBars" />
-        </section>
-        <section class="card">
+        <section class="card recent-sessions">
             <h2>Recente potjes</h2>
             @if (history.Count == 0)
             {
@@ -50,7 +49,7 @@ else
             }
             else
             {
-                @foreach (var session in history.Take(6))
+                @foreach (var session in history.OrderByDescending(session => session.PlayedAt).ThenByDescending(session => session.Id).Take(6))
                 {
                     <p>
                         <a href="/sessions/@session.Id">@session.BoardGameName</a>
@@ -60,8 +59,62 @@ else
                 }
             }
         </section>
+        <section class="card dashboard-ranking">
+            <div class="ranking-filter">
+                <h2>Meest gespeeld</h2>
+                <label>Filter per periode
+                    <select @bind="gamePeriod">
+                        <option value="all">Alle jaren</option>
+                        <option value="year">Jaar</option>
+                        <option value="month">Maand</option>
+                        <option value="custom">Eigen periode</option>
+                    </select>
+                </label>
+                @if (gamePeriod is "year" or "month")
+                {
+                    <label>Jaar <select @bind="gameYear">@foreach (var year in years) { <option value="@year">@year</option> }</select></label>
+                }
+                @if (gamePeriod == "month")
+                {
+                    <label>Maand <select @bind="gameMonth">@foreach (var month in months) { <option value="@month">@MonthName(month)</option> }</select></label>
+                }
+                @if (gamePeriod == "custom")
+                {
+                    <label>Van <input type="date" @bind="gameFrom" /></label>
+                    <label>Tot <input type="date" @bind="gameTo" /></label>
+                }
+            </div>
+            <BarChart Items="GameBars" />
+        </section>
+        <section class="card dashboard-ranking">
+            <div class="ranking-filter">
+                <h2>Overwinningen per speler</h2>
+                <label>Filter per periode
+                    <select @bind="winPeriod">
+                        <option value="all">Alle jaren</option>
+                        <option value="year">Jaar</option>
+                        <option value="month">Maand</option>
+                        <option value="custom">Eigen periode</option>
+                    </select>
+                </label>
+                @if (winPeriod is "year" or "month")
+                {
+                    <label>Jaar <select @bind="winYear">@foreach (var year in years) { <option value="@year">@year</option> }</select></label>
+                }
+                @if (winPeriod == "month")
+                {
+                    <label>Maand <select @bind="winMonth">@foreach (var month in months) { <option value="@month">@MonthName(month)</option> }</select></label>
+                }
+                @if (winPeriod == "custom")
+                {
+                    <label>Van <input type="date" @bind="winFrom" /></label>
+                    <label>Tot <input type="date" @bind="winTo" /></label>
+                }
+            </div>
+            <BarChart Items="WinBars" />
+        </section>
     </div>
-    <div class="actions">
+    <div class="actions dashboard-actions">
         <a class="button" href="/manage">Potje invoeren</a>
         <a class="button secondary" href="/chat">Vraag de AI</a>
     </div>

@@ -2,56 +2,80 @@
 @inject PlayerService Players
 @inject GameSessionService Sessions
 @inject StatisticsService Stats
-<PageTitle>Spelerprofiel · MeepleOS</PageTitle>
+
+<PageTitle>@(player?.Name ?? "Speler") · MeepleOS</PageTitle>
 @if (player is null)
 {
-    <h1>Speler niet gevonden</h1>
+    <div class="profile-not-found card">
+        <h1>Speler niet gevonden</h1>
+        <a href="/players">Terug naar spelers →</a>
+    </div>
 }
 else
 {
-    <p>
-        <a href="/players">← Spelers</a>
-    </p>
-    <h1>@player.Name</h1>
-    <div class="metrics">
-        <div>
-            <strong>@history.Count</strong>
-            <span>potjes</span>
+    <a class="profile-back" href="/players">← Alle spelers</a>
+    <header class="profile-hero">
+        <div class="profile-hero-main">
+            <span class="profile-avatar" aria-hidden="true">@player.Name[..1].ToUpperInvariant()</span>
+            <div>
+                <span class="profile-eyebrow">Spelerprofiel</span>
+                <h1>@player.Name</h1>
+                <p>@(history.Count == 0 ? "Nog geen potjes geregistreerd" : $"Speelt mee sinds {history.Min(session => session.PlayedAt).ToString("dd-MM-yyyy")}")</p>
+            </div>
         </div>
-        <div>
-            <strong>@wins</strong>
-            <span>overwinningen</span>
-        </div>
-        <div>
-            <strong>@percentage.ToString("0.#")%</strong>
-            <span>winstpercentage</span>
-        </div>
-    </div>
-    <div class="grid">
-        <section class="card">
-            <h2>Vaak gespeelde spellen</h2>
+        <a class="button secondary" href="/statistics">Bekijk statistieken</a>
+    </header>
+
+    <section class="profile-metrics" aria-label="Spelercijfers">
+        <div class="card profile-metric"><span>Gespeelde potjes</span><strong>@history.Count</strong></div>
+        <div class="card profile-metric"><span>Overwinningen</span><strong>@wins</strong></div>
+        <div class="card profile-metric"><span>Winstpercentage</span><strong>@percentage.ToString("0.#")%</strong><span class="profile-meter" aria-hidden="true"><span style="width:@((int)Math.Round(percentage))%"></span></span></div>
+    </section>
+
+    <div class="profile-grid">
+        <section class="card profile-panel">
+            <div class="profile-panel-heading"><div><h2>Favoriete spellen</h2><p>De spellen die @player.Name het vaakst speelt</p></div></div>
             <BarChart Items="gameBars" />
         </section>
-        <section class="card">
-            <h2>Recente potjes</h2>
-            @foreach (var s in history.Take(10))
+        <section class="card profile-panel">
+            <div class="profile-panel-heading"><div><h2>Recente potjes</h2><p>De laatste 10 gespeelde spellen</p></div></div>
+            @if (history.Count == 0)
             {
-                <p>
-                    <a href="/sessions/@s.Id">@s.BoardGameName</a>
-                    · @s.PlayedAt.ToString("dd-MM-yyyy")
-                    @(s.Players.First(p => p.PlayerId == Id).IsWinner ? "🏆" : "")
-                </p>
+                <p class="profile-muted">Nog geen potjes geregistreerd.</p>
+            }
+            else
+            {
+                <div class="profile-record-list">
+                    @foreach (var session in history.Take(10))
+                    {
+                        var won = session.Players.Any(participant => participant.PlayerId == Id && participant.IsWinner);
+                        <a href="/sessions/@session.Id">
+                            <span class="profile-record-main"><strong>@session.BoardGameName</strong><small>@session.PlayedAt.ToString("dd-MM-yyyy")</small></span>
+                            @if (won)
+                            {
+                                <span class="profile-win-tag">Gewonnen</span>
+                            }
+                            <span class="profile-record-arrow" aria-hidden="true">→</span>
+                        </a>
+                    }
+                </div>
             }
         </section>
-        <section class="card">
-            <h2>Beschikbare scores</h2>
-            @foreach (var s in history.Where(s => s.Players.Any(p => p.PlayerId == Id && p.Score.HasValue)).Take(12))
+        <section class="card profile-panel profile-panel-wide">
+            <div class="profile-panel-heading"><div><h2>Geregistreerde scores</h2><p>Scores van potjes waarin een score is ingevuld</p></div></div>
+            @if (scoredSessions.Count == 0)
             {
-                <p>@s.BoardGameName · @s.PlayedAt.ToString("dd-MM-yyyy"): @s.Players.First(p => p.PlayerId == Id).Score</p>
+                <p class="profile-muted">Geen scores geregistreerd.</p>
             }
-            @if (!history.Any(s => s.Players.Any(p => p.PlayerId == Id && p.Score.HasValue)))
+            else
             {
-                <p>Geen scores geregistreerd.</p>
+                <div class="profile-score-list">
+                    @foreach (var session in scoredSessions.Take(12))
+                    {
+                        var score = session.Players.First(participant => participant.PlayerId == Id).Score;
+                        <a href="/sessions/@session.Id"><span><strong>@session.BoardGameName</strong><small>@session.PlayedAt.ToString("dd-MM-yyyy")</small></span><strong class="profile-score-value">@score punten</strong></a>
+                    }
+                </div>
             }
         </section>
     </div>

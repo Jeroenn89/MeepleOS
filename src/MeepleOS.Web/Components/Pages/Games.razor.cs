@@ -1,14 +1,11 @@
 using MeepleOS.BusinessLayer.Services;
-using MeepleOS.Web.Services;
-using Microsoft.AspNetCore.Components;
 
 namespace MeepleOS.Web.Components.Pages;
 
 public partial class Games
 {
     private List<BoardgameResult>? games;
-    private List<GameExpansionResult>? expansions;
-    private List<GameSessionResult>? sessions;
+    private Dictionary<int, int> playCounts = [];
     private string? search;
     private int? players;
     private int? minutes;
@@ -16,8 +13,9 @@ public partial class Games
     protected override async Task OnInitializedAsync()
     {
         games = await GameService.GetAllAsync();
-        expansions = await ExpansionService.GetAllAsync();
-        sessions = await SessionService.GetAllAsync();
+        playCounts = (await SessionService.GetAllAsync())
+            .GroupBy(session => session.BoardGameId)
+            .ToDictionary(group => group.Key, group => group.Count());
     }
 
     private bool MatchesFilters(BoardgameResult game) =>
