@@ -8,8 +8,8 @@ public partial class Wheel : IDisposable
 {
     private static readonly string[] SegmentColors =
     [
-        "#216f59", "#936b1f", "#2b7b70", "#9a4f33",
-        "#2b5b73", "#80506e", "#537544", "#8c5429"
+        "var(--wheel-1)", "var(--wheel-2)", "var(--wheel-3)", "var(--wheel-4)",
+        "var(--wheel-5)", "var(--wheel-6)", "var(--wheel-7)", "var(--wheel-8)"
     ];
 
     private List<BoardgameResult>? games;
@@ -123,7 +123,7 @@ public partial class Wheel : IDisposable
         }
         catch (OperationCanceledException)
         {
-            // Navigeren van de pagina stopt een lopende draai.
+            // Als de pagina wordt verlaten tijdens het draaien, wordt de spin geannuleerd.
         }
     }
 

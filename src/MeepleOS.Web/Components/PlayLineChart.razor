@@ -16,10 +16,15 @@ else
         <div class="line-chart-plot" role="img" aria-label="@Description">
             <svg viewBox="0 0 1000 320" preserveAspectRatio="none" aria-hidden="true">
                 <defs>
-                    <linearGradient id="@gradientId" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stop-color="#519e78" stop-opacity=".22" />
-                        <stop offset="100%" stop-color="#519e78" stop-opacity="0" />
-                    </linearGradient>
+                    <filter id="@pencilFilterId" filterUnits="userSpaceOnUse" x="0" y="0" width="1000" height="320">
+                        <feTurbulence type="fractalNoise" baseFrequency=".16 .45" numOctaves="3" seed="7" result="grain" />
+                        <feDisplacementMap in="SourceGraphic" in2="grain" scale="1.8" xChannelSelector="R" yChannelSelector="G" result="roughStroke" />
+                        <feColorMatrix in="grain" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  1 0 0 0 0" result="grainAlpha" />
+                        <feComponentTransfer in="grainAlpha" result="pencilTexture">
+                            <feFuncA type="linear" slope="2.5" intercept="-.55" />
+                        </feComponentTransfer>
+                        <feComposite in="roughStroke" in2="pencilTexture" operator="in" />
+                    </filter>
                 </defs>
                 @foreach (var grid in GridLines)
                 {
@@ -27,11 +32,7 @@ else
                 }
                 @if (VisibleSeries.Count > 0)
                 {
-                    @if (VisibleSeries.Count > 1)
-                    {
-                        <path d="@AreaPath" fill="url(#@gradientId)" />
-                    }
-                    <path d="@LinePath" class="chart-main-line" />
+                    <path d="@SketchLinePath" class="chart-main-line" filter="url(#@pencilFilterId)" />
                     @foreach (var point in VisibleSeries)
                     {
                         <circle cx="@point.X" cy="@point.Y" r="11" class="chart-hit">
@@ -44,6 +45,21 @@ else
                     }
                 }
             </svg>
+            @if (VisibleSeries.Count > 0)
+            {
+                var pencilTip = VisibleSeries[^1];
+                <span class="chart-pencil-anchor" style="left:@Percent(100 * pencilTip.X / 1000)%;top:@Percent(100 * pencilTip.Y / 320)%" aria-hidden="true">
+                    <svg viewBox="0 0 120 28" focusable="false">
+                        <path d="M 3 14 L 22 6 L 22 22 Z" fill="#E4C69A" />
+                        <path d="M 3 14 L 10 11 L 10 17 Z" fill="#3F3C38" />
+                        <path d="M 22 6 H 99 V 22 H 22 Z" fill="#D7AA60" />
+                        <path d="M 22 11 H 99 V 17 H 22 Z" fill="#F5D994" />
+                        <path d="M 99 6 H 108 V 22 H 99 Z" fill="#A69E91" />
+                        <path d="M 108 6 H 114 Q 118 6 118 10 V 18 Q 118 22 114 22 H 108 Z" fill="#C88479" />
+                        <path d="M 3 14 L 22 6 H 114 Q 118 6 118 10 V 18 Q 118 22 114 22 H 22 Z M 99 6 V 22 M 108 6 V 22 M 22 11 H 99 M 22 17 H 99" fill="none" stroke="#55483B" stroke-width="1.2" stroke-linejoin="round" />
+                    </svg>
+                </span>
+            }
             @foreach (var grid in GridLines)
             {
                 <span class="chart-value-label" style="top:@Percent(100 * grid.Y / 320)%">@grid.Value</span>
@@ -55,7 +71,18 @@ else
         </div>
         <div class="line-chart-overview" aria-hidden="true">
             <svg viewBox="0 0 1000 72" preserveAspectRatio="none">
-                <path d="@OverviewPath" class="chart-overview-line" />
+                <defs>
+                    <filter id="@overviewPencilFilterId" filterUnits="userSpaceOnUse" x="0" y="0" width="1000" height="72">
+                        <feTurbulence type="fractalNoise" baseFrequency=".16 .45" numOctaves="3" seed="7" result="grain" />
+                        <feDisplacementMap in="SourceGraphic" in2="grain" scale="1.2" xChannelSelector="R" yChannelSelector="G" result="roughStroke" />
+                        <feColorMatrix in="grain" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  1 0 0 0 0" result="grainAlpha" />
+                        <feComponentTransfer in="grainAlpha" result="pencilTexture">
+                            <feFuncA type="linear" slope="2.5" intercept="-.55" />
+                        </feComponentTransfer>
+                        <feComposite in="roughStroke" in2="pencilTexture" operator="in" />
+                    </filter>
+                </defs>
+                <path d="@SketchOverviewPath" class="chart-overview-line" filter="url(#@overviewPencilFilterId)" />
             </svg>
             <div class="line-chart-selection" style="left:@Percent(SelectionLeft)%;width:@Percent(SelectionWidth)%"></div>
         </div>

@@ -67,11 +67,11 @@ else
                         <title>@game.Name</title>
                         @if (wheelGames.Count == 1)
                         {
-                            <circle cx="400" cy="400" r="390" fill="@SegmentColors[0]" />
+                            <circle cx="400" cy="400" r="390" style="fill:@SegmentColors[0]" />
                         }
                         else
                         {
-                            <path d="@SlicePath(index)" fill="@SegmentColors[index % SegmentColors.Length]" />
+                            <path d="@SlicePath(index)" style="fill:@SegmentColors[index % SegmentColors.Length]" />
                         }
                         <text class="wheel-segment-label" x="@SvgNumber(LabelPosition(index).X)" y="@SvgNumber(LabelPosition(index).Y)" transform="@LabelRotation(index)" text-anchor="@LabelAnchor(index)" dominant-baseline="middle" font-size="@LabelFontSize">@WheelLabel(game.Name)</text>
                     </g>

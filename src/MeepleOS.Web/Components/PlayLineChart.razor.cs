@@ -9,7 +9,8 @@ public partial class PlayLineChart
     [Parameter] public IReadOnlyList<LineChartPoint> Points { get; set; } = [];
     [Parameter] public string Description { get; set; } = "Aantal gespeelde potjes door de tijd";
 
-    private readonly string gradientId = $"chart-fill-{Guid.NewGuid():N}";
+    private readonly string pencilFilterId = $"chart-pencil-{Guid.NewGuid():N}";
+    private readonly string overviewPencilFilterId = $"chart-pencil-overview-{Guid.NewGuid():N}";
     private static readonly CultureInfo Dutch = CultureInfo.GetCultureInfo("nl-NL");
     private static readonly (string Key, string Label, int Days)[] ZoomOptions =
     [
@@ -102,8 +103,7 @@ public partial class PlayLineChart
 
     private int ChartStep => Math.Max(1, (int)Math.Ceiling(Buckets.Max(bucket => bucket.Value) / 4.0));
     private int ChartMaximum => ChartStep * 4;
-    private string LinePath => Path(VisibleSeries.Select(point => (point.X, point.Y)));
-    private string AreaPath => $"{LinePath} L 966 260 L 48 260 Z";
+    private string SketchLinePath => SketchPath(VisibleSeries.Select(point => (point.X, point.Y)), 2.4, 7);
     private List<(double Y, int Value)> GridLines
     {
         get
@@ -121,7 +121,7 @@ public partial class PlayLineChart
             return (X: from == to ? 507.0 : 48.0 + index * 229.5, Label: date.ToString(format, Dutch));
         }).ToList();
 
-    private string OverviewPath
+    private List<(double X, double Y)> OverviewSeries
     {
         get
         {
@@ -131,12 +131,42 @@ public partial class PlayLineChart
                 .Select(group => (X: 1000.0 * (group.First().Date.DayNumber - first) / span,
                     Value: group.Sum(point => point.Value))).ToList();
             var peak = Math.Max(1, monthly.Max(point => point.Value));
-            return Path(monthly.Select(point => (point.X, 60.0 - 46.0 * point.Value / peak)));
+            return monthly.Select(point => (point.X, 60.0 - 46.0 * point.Value / peak)).ToList();
         }
     }
+    private string SketchOverviewPath => SketchPath(OverviewSeries, 1.4, 7);
 
     private static string Path(IEnumerable<(double X, double Y)> points) => string.Join(" ",
         points.Select((point, index) => $"{(index == 0 ? "M" : "L")} {point.X.ToString("0.##", CultureInfo.InvariantCulture)} {point.Y.ToString("0.##", CultureInfo.InvariantCulture)}"));
+
+    private static string SketchPath(IEnumerable<(double X, double Y)> points, double wobble, int seed)
+    {
+        var vertices = points.ToList();
+        if (vertices.Count < 2) return Path(vertices);
+
+        var sketched = new List<(double X, double Y)> { vertices[0] };
+        for (var index = 1; index < vertices.Count; index++)
+        {
+            var start = vertices[index - 1];
+            var end = vertices[index];
+            var dx = end.X - start.X;
+            var dy = end.Y - start.Y;
+            var length = Math.Sqrt(dx * dx + dy * dy);
+            var steps = Math.Max(1, (int)Math.Ceiling(length / 8));
+            for (var step = 1; step < steps; step++)
+            {
+                var fraction = (double)step / steps;
+                var noise = Math.Sin(index * 17.31 + step * 8.73 + seed * 3.17)
+                    * Math.Sin(index * 6.49 + step * 2.51 + seed * 1.93);
+                var offset = wobble * noise;
+                sketched.Add((start.X + fraction * dx - offset * dy / length,
+                    start.Y + fraction * dy + offset * dx / length));
+            }
+            sketched.Add(end);
+        }
+
+        return Path(sketched);
+    }
 
     private static string Percent(double value) => value.ToString("0.##", CultureInfo.InvariantCulture);
 }
