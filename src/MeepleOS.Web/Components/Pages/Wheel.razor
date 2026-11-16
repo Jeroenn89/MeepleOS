@@ -1,0 +1,109 @@
+@page "/wheel"
+@inject BoardgameService GameService
+
+<PageTitle>Spelrad · MeepleOS</PageTitle>
+
+<div class="wheel-page-heading">
+    <div>
+        <h1>Het spelrad</h1>
+    </div>
+    <a class="button secondary" href="/games">Bekijk de collectie</a>
+</div>
+
+<section class="card wheel-filter-card" aria-label="Spellen voor het rad filteren">
+    <div class="wheel-filter-intro">
+        <h2>Filter de spellen</h2>
+        <p>Het rad toont alleen spellen die passen bij het aantal spelers en de beschikbare speeltijd.</p>
+    </div>
+    <div class="wheel-filters">
+        <label>
+            Aantal spelers
+            <input type="number" min="1" max="99" @bind="playerCount" @bind:after="RebuildWheel" disabled="@spinning" />
+        </label>
+        <label>
+            Maximaal aantal minuten
+            <input type="number" min="1" max="1440" @bind="maxMinutes" @bind:after="RebuildWheel" disabled="@spinning" />
+        </label>
+        <div class="wheel-match-count" aria-live="polite">
+            <strong>@EligibleGames.Count</strong>
+            <span>@(EligibleGames.Count == 1 ? "passend bordspel" : "passende bordspellen")</span>
+        </div>
+    </div>
+</section>
+
+@if (games is null)
+{
+    <p>Laden…</p>
+}
+else if (EligibleGames.Count == 0)
+{
+    <div class="card wheel-empty">
+        <h2>Geen spellen gevonden</h2>
+        <p>Probeer meer speeltijd of een ander aantal spelers.</p>
+        <a href="/games">Bekijk alle bordspellen →</a>
+    </div>
+}
+else
+{
+    <section class="wheel-stage" aria-label="Spelrad">
+        <div class="wheel-stage-heading">
+            <div>
+                <h2>Klaar om te draaien?</h2>
+                <p>Alle @wheelGames.Count passende spellen staan op het rad.</p>
+            </div>
+            @if (wheelGames.Count > 1)
+            {
+                <button type="button" class="secondary wheel-refresh" @onclick="RebuildWheel" disabled="@spinning">Volgorde schudden</button>
+            }
+        </div>
+
+        <div class="wheel-wrap">
+            <div class="wheel-pointer" aria-hidden="true"></div>
+            <svg class="wheel-disc" @key="wheelVersion" viewBox="0 0 800 800" style="transform:rotate(@rotationDegrees.ToString(System.Globalization.CultureInfo.InvariantCulture)deg);transition:@(spinning ? "transform 5s cubic-bezier(.12,.72,.08,1)" : "none")" role="img" aria-label="Rad met @wheelGames.Count bordspellen">
+                @for (var index = 0; index < wheelGames.Count; index++)
+                {
+                    var game = wheelGames[index];
+                    <g>
+                        <title>@game.Name</title>
+                        @if (wheelGames.Count == 1)
+                        {
+                            <circle cx="400" cy="400" r="390" fill="@SegmentColors[0]" />
+                        }
+                        else
+                        {
+                            <path d="@SlicePath(index)" fill="@SegmentColors[index % SegmentColors.Length]" />
+                        }
+                        <text class="wheel-segment-label" x="@SvgNumber(LabelPosition(index).X)" y="@SvgNumber(LabelPosition(index).Y)" transform="@LabelRotation(index)" text-anchor="@LabelAnchor(index)" dominant-baseline="middle" font-size="@LabelFontSize">@WheelLabel(game.Name)</text>
+                    </g>
+                }
+                <circle class="wheel-hub" cx="400" cy="400" r="34" aria-hidden="true" />
+                <text class="wheel-hub-letter" x="400" y="400" text-anchor="middle" dominant-baseline="middle" aria-hidden="true">M</text>
+            </svg>
+        </div>
+
+        <div class="wheel-controls">
+            <button type="button" class="wheel-spin-button" @onclick="Spin" disabled="@spinning">@(spinning ? "Het rad draait…" : "Draai het rad")</button>
+            <p>Iedere plek op het rad heeft dezelfde kans.</p>
+        </div>
+
+        <details class="wheel-legend">
+            <summary>Volledige spelnamen bekijken</summary>
+            <ol>
+                @for (var index = 0; index < wheelGames.Count; index++)
+                {
+                    <li><span class="wheel-legend-color" style="background:@SegmentColors[index % SegmentColors.Length]" aria-hidden="true"></span><span>@wheelGames[index].Name</span></li>
+                }
+            </ol>
+        </details>
+
+        @if (selectedGame is not null && !spinning)
+        {
+            <div class="wheel-result" role="status">
+                <span>Het wordt vanavond</span>
+                <h2>@selectedGame.Name</h2>
+                <p>@selectedGame.MinPlayers–@(selectedGame.MaxPlayers?.ToString() ?? "∞") spelers · circa @selectedGame.EstimatedMinutes minuten</p>
+                <a class="button" href="/games/@selectedGame.Id">Bekijk het bordspel →</a>
+            </div>
+        }
+    </section>
+}
