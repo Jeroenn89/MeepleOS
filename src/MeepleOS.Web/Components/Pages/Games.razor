@@ -27,7 +27,7 @@ else
         @foreach (var game in games.Where(MatchesFilters))
         {
             var playCount = playCounts.GetValueOrDefault(game.Id);
-            <a class="card game-collection-card" href="/games/@game.Id" aria-label="@game.Name, @(playCount == 0 ? "nog niet gespeeld" : $"{playCount} keer gespeeld")">
+            <a class="card game-collection-card @cardDecorations.GetValueOrDefault(game.Id)" href="/games/@game.Id" aria-label="@game.Name, @(playCount == 0 ? "nog niet gespeeld" : $"{playCount} keer gespeeld")">
                 <h2>@game.Name</h2>
                 <div class="game-collection-details">
                     <div class="game-collection-facts">

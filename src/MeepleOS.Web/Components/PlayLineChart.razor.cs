@@ -1,16 +1,23 @@
 using System.Globalization;
 using MeepleOS.Web.Services;
 using Microsoft.AspNetCore.Components;
+using Microsoft.JSInterop;
 
 namespace MeepleOS.Web.Components;
 
-public partial class PlayLineChart
+public partial class PlayLineChart : IAsyncDisposable
 {
     [Parameter] public IReadOnlyList<LineChartPoint> Points { get; set; } = [];
     [Parameter] public string Description { get; set; } = "Aantal gespeelde potjes door de tijd";
+    [Parameter] public bool EraseOnScroll { get; set; }
+
+    [Inject] private IJSRuntime JS { get; set; } = default!;
+    private ElementReference chartElement;
+    private IJSObjectReference? scrollModule;
 
     private readonly string pencilFilterId = $"chart-pencil-{Guid.NewGuid():N}";
     private readonly string overviewPencilFilterId = $"chart-pencil-overview-{Guid.NewGuid():N}";
+    private readonly string eraseClipId = $"chart-erase-{Guid.NewGuid():N}";
     private static readonly CultureInfo Dutch = CultureInfo.GetCultureInfo("nl-NL");
     private static readonly (string Key, string Label, int Days)[] ZoomOptions =
     [
@@ -43,6 +50,27 @@ public partial class PlayLineChart
             from = from < MinDate ? MinDate : from;
             to = to > MaxDate ? MaxDate : to;
             if (from > to) from = to;
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!EraseOnScroll || Points.Count == 0 || scrollModule is not null) return;
+        scrollModule = await JS.InvokeAsync<IJSObjectReference>("import", "./chart-erase.js");
+        await scrollModule.InvokeVoidAsync("attach", chartElement);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (scrollModule is null) return;
+        try
+        {
+            await scrollModule.InvokeVoidAsync("detach", chartElement);
+            await scrollModule.DisposeAsync();
+        }
+        catch (JSDisconnectedException)
+        {
+            // The browser can disconnect before the component is disposed.
         }
     }
 
@@ -104,6 +132,27 @@ public partial class PlayLineChart
     private int ChartStep => Math.Max(1, (int)Math.Ceiling(Buckets.Max(bucket => bucket.Value) / 4.0));
     private int ChartMaximum => ChartStep * 4;
     private string SketchLinePath => SketchPath(VisibleSeries.Select(point => (point.X, point.Y)), 2.4, 7);
+    private (double NoteX, double NoteY, int Value, string Label, string ArrowPath, string ArrowHead)? PeakNote
+    {
+        get
+        {
+            var peak = VisibleSeries.MaxBy(point => point.Value);
+            if (peak.Value < 2) return null;
+
+            var noteOnLeft = peak.X > 500;
+            var noteX = noteOnLeft ? Math.Max(55, peak.X - 160) : Math.Min(800, peak.X + 32);
+            var noteY = peak.Y < 115 ? peak.Y + 32 : peak.Y - 70;
+            var startX = noteOnLeft ? noteX + 138 : noteX;
+            var startY = noteY + 9;
+            var endX = peak.X + (noteOnLeft ? -7 : 7);
+            var endY = peak.Y + (peak.Y < 115 ? 7 : -7);
+            var bendX = (startX + endX) / 2;
+            var bendY = (startY + endY) / 2 + (peak.Y < 115 ? -8 : 8);
+            var arrowPath = $"M {Coordinate(startX)} {Coordinate(startY)} Q {Coordinate(bendX)} {Coordinate(bendY)} {Coordinate(endX)} {Coordinate(endY)}";
+            var arrowHead = $"M {Coordinate(endX - (noteOnLeft ? 6 : -6))} {Coordinate(endY - 1)} L {Coordinate(endX)} {Coordinate(endY)} L {Coordinate(endX - (noteOnLeft ? 1 : -1))} {Coordinate(endY + (peak.Y < 115 ? 6 : -6))}";
+            return (noteX, noteY, peak.Value, peak.Label, arrowPath, arrowHead);
+        }
+    }
     private List<(double Y, int Value)> GridLines
     {
         get
@@ -169,4 +218,5 @@ public partial class PlayLineChart
     }
 
     private static string Percent(double value) => value.ToString("0.##", CultureInfo.InvariantCulture);
+    private static string Coordinate(double value) => value.ToString("0.##", CultureInfo.InvariantCulture);
 }

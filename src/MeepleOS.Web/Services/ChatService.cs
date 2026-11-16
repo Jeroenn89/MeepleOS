@@ -28,7 +28,7 @@ public sealed class ChatService(WebOptions options, IHttpClientFactory httpFacto
     {
         var key = Environment.GetEnvironmentVariable("GEMINI_API_KEY");
         if (string.IsNullOrWhiteSpace(key))
-            return ("AI-chat is niet beschikbaar: GEMINI_API_KEY ontbreekt. Handmatige invoer werkt wel.", 0, 0);
+            return ("Meeple Companion is niet beschikbaar: GEMINI_API_KEY ontbreekt. Handmatige invoer werkt wel.", 0, 0);
 
         GeminiPlanner? planner = null;
         TavilyGameSearch? search = null;

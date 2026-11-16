@@ -40,6 +40,7 @@ public partial class Chat : IDisposable
     private ChatExchange? pending;
     private bool busy;
     private ElementReference chatWindow;
+    private ElementReference promptInput;
     private bool scrollPending;
 
     protected override void OnInitialized()
@@ -57,6 +58,10 @@ public partial class Chat : IDisposable
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (firstRender)
+            await JS.InvokeVoidAsync("meepleChat.bindComposer", promptInput);
+        await JS.InvokeVoidAsync("meepleChat.animateNewMessages", chatWindow);
+
         if (!scrollPending)
             return;
 

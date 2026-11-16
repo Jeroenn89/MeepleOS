@@ -1,21 +1,27 @@
 @page "/chat"
 @inject ChatService ChatService
 @inject IJSRuntime JS
-<PageTitle>AI-chat · MeepleOS</PageTitle>
-<h1>AI-chat</h1>
-<p class="intro">Stel een vraag of registreer een potje in het Nederlands.</p>
+<PageTitle>Meeple Companion · MeepleOS</PageTitle>
+<h1>Meeple Companion</h1>
+<div class="chat-paper">
 <div class="chat-window" aria-live="polite" @ref="chatWindow">
+    @if (ChatService.Conversation.Exchanges.Count == 0)
+    {
+        <p class="chat-empty-note">Wat schrijven we vandaag op?<br><small>Vraag iets over je collectie of vertel over een gespeeld potje.</small></p>
+    }
     @foreach (var exchange in ChatService.Conversation.Exchanges)
     {
         <p class="chat-message user">
             <b>Jij</b>
             <span class="chat-message-text">@exchange.Request</span>
+            <span class="chat-writing-pencil" aria-hidden="true">✎</span>
         </p>
         @if (exchange.Response is not null)
         {
             <p class="chat-message assistant">
                 <b>MeepleOS</b>
                 <span class="chat-message-text">@RenderMessage(exchange.Response)</span>
+                <span class="chat-writing-pencil" aria-hidden="true">✎</span>
             </p>
             <p class="chat-request-counts">Gemini-verzoeken: @exchange.GeminiRequests · Tavily-verzoeken: @exchange.TavilyRequests</p>
         }
@@ -23,14 +29,15 @@
     @if (busy)
     {
         <div class="chat-loading" role="status" aria-label="MeepleOS is aan het nadenken...">
-            <span class="chat-spinner" aria-hidden="true"></span>
-            <span>MeepleOS is aan het nadenken...</span>
+            <span class="chat-thinking-indicator" aria-hidden="true"><span class="chat-thinking-pencil">✎</span><span class="chat-thinking-dots"><i></i><i></i><i></i></span></span>
+            <span>MeepleOS denkt na...</span>
         </div>
     }
 </div>
+</div>
 @if(pending is not null)
 {
-    <div class="card confirm">
+    <div class="card confirm chat-confirm">
         <p>Bevestig deze ingrijpende opdracht voordat ik hem uitvoer:</p>
         <blockquote>@pending.Request</blockquote>
         <button class="danger" disabled="@busy" @onclick="Confirm">Bevestig en voer uit</button>
@@ -41,7 +48,9 @@
     <label for="prompt">
         Je bericht
     </label>
-    <textarea id="prompt" @bind="prompt" disabled="@busy">
-    </textarea>
+    <div class="chat-compose-paper">
+        <textarea id="prompt" @bind="prompt" @bind:event="oninput" @ref="promptInput" disabled="@busy"></textarea>
+        <span class="chat-compose-pencil" aria-hidden="true">✎</span>
+    </div>
     <button disabled="@busy" @onclick="Send">@(busy?"Bezig…":"Verstuur")</button>
 </div>
