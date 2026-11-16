@@ -50,6 +50,13 @@ internal static class GameTitleMatcher
             ? prefix + 1 : null;
     }
 
+    public static bool SameTitle(string? left, string? right)
+    {
+        if (string.IsNullOrWhiteSpace(left) || string.IsNullOrWhiteSpace(right)) return false;
+        return string.Concat(Tokens(left, ignoreWords: false))
+            .Equals(string.Concat(Tokens(right, ignoreWords: false)), StringComparison.OrdinalIgnoreCase);
+    }
+
     public static string PageTitle(string title) =>
         Regex.Split(title, @"\s+[|–-]\s+|\s*\(\d{4}\)")[0].Trim();
 

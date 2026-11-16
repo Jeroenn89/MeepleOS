@@ -8,7 +8,7 @@ using System.Text.RegularExpressions;
 
 namespace MeepleOS.Web.Components.Pages;
 
-public partial class Chat
+public partial class Chat : IDisposable
 {
     private static readonly Regex DestructiveCommand = new(
         @"\b(verwijder|wis|wijzig|hernoem|pas aan)\b",
@@ -22,7 +22,7 @@ public partial class Chat
         var offset = 0;
         foreach (Match match in SourceLink.Matches(message))
         {
-            html.Append(HtmlEncoder.Default.Encode(message[offset..match.Index]).Replace("\r\n", "<br>").Replace("\n", "<br>"));
+            html.Append(HtmlEncoder.Default.Encode(message[offset..match.Index]));
             var url = match.Groups["url"].Value;
             if (Uri.TryCreate(url, UriKind.Absolute, out var uri) && uri.Scheme == Uri.UriSchemeHttps)
                 html.Append("<a href=\"").Append(HtmlEncoder.Default.Encode(url))
@@ -32,16 +32,28 @@ public partial class Chat
                 html.Append(HtmlEncoder.Default.Encode(match.Value));
             offset = match.Index + match.Length;
         }
-        html.Append(HtmlEncoder.Default.Encode(message[offset..]).Replace("\r\n", "<br>").Replace("\n", "<br>"));
+        html.Append(HtmlEncoder.Default.Encode(message[offset..]));
         return new MarkupString(html.ToString());
     }
 
-    private List<(bool User, string Text)> messages = [];
     private string prompt = "";
-    private string? pending;
+    private ChatExchange? pending;
     private bool busy;
     private ElementReference chatWindow;
     private bool scrollPending;
+
+    protected override void OnInitialized()
+        => ChatService.Conversation.Changed += ConversationChanged;
+
+    private void ConversationChanged()
+        => _ = InvokeAsync(() =>
+        {
+            scrollPending = true;
+            StateHasChanged();
+        });
+
+    public void Dispose()
+        => ChatService.Conversation.Changed -= ConversationChanged;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -59,18 +71,18 @@ public partial class Chat
             return;
 
         prompt = "";
-        messages.Add((true, command));
+        var exchange = ChatService.Conversation.Begin(command);
         scrollPending = true;
 
         if (DestructiveCommand.IsMatch(command))
         {
-            pending = command;
-            messages.Add((false, "Deze opdracht kan gegevens definitief wijzigen. Bevestig de tekst hieronder."));
+            pending = exchange;
+            ChatService.Conversation.Complete(exchange, "Deze opdracht kan gegevens definitief wijzigen. Bevestig de tekst hieronder.");
             scrollPending = true;
             return;
         }
 
-        await Execute(command);
+        await Execute(exchange);
     }
 
     private async Task Confirm()
@@ -78,30 +90,34 @@ public partial class Chat
         if (pending is null || busy)
             return;
 
-        var command = pending;
+        var exchange = pending;
         pending = null;
-        await Execute(command);
+        await Execute(exchange);
     }
 
     private void Cancel()
     {
+        if (pending is null)
+            return;
+
+        var exchange = pending;
         pending = null;
-        messages.Add((false, "Opdracht geannuleerd; niets opgeslagen."));
+        ChatService.Conversation.Complete(exchange, "Opdracht geannuleerd; niets opgeslagen.");
         scrollPending = true;
     }
-    private async Task Execute(string command)
+    private async Task Execute(ChatExchange exchange)
     {
         busy = true;
         StateHasChanged();
         await Task.Yield();
         try
         {
-            messages.Add((false, await ChatService.AskAsync(command)));
+            await ChatService.AskAsync(exchange);
             scrollPending = true;
         }
         catch (Exception)
         {
-            messages.Add((false, "Er is iets misgegaan. Probeer het opnieuw."));
+            ChatService.Conversation.Complete(exchange, "Er is iets misgegaan. Probeer het opnieuw.");
             scrollPending = true;
         }
         finally

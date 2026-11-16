@@ -35,6 +35,7 @@
 {
     <p>Laden…</p>
 }
+
 else if (EligibleGames.Count == 0)
 {
     <div class="card wheel-empty">
@@ -48,7 +49,6 @@ else
     <section class="wheel-stage" aria-label="Spelrad">
         <div class="wheel-stage-heading">
             <div>
-                <h2>Klaar om te draaien?</h2>
                 <p>Alle @wheelGames.Count passende spellen staan op het rad.</p>
             </div>
             @if (wheelGames.Count > 1)
@@ -83,7 +83,6 @@ else
 
         <div class="wheel-controls">
             <button type="button" class="wheel-spin-button" @onclick="Spin" disabled="@spinning">@(spinning ? "Het rad draait…" : "Draai het rad")</button>
-            <p>Iedere plek op het rad heeft dezelfde kans.</p>
         </div>
 
         <details class="wheel-legend">
@@ -99,11 +98,28 @@ else
         @if (selectedGame is not null && !spinning)
         {
             <div class="wheel-result" role="status">
-                <span>Het wordt vanavond</span>
+                <span>Winnaar:</span>
                 <h2>@selectedGame.Name</h2>
                 <p>@selectedGame.MinPlayers–@(selectedGame.MaxPlayers?.ToString() ?? "∞") spelers · circa @selectedGame.EstimatedMinutes minuten</p>
-                <a class="button" href="/games/@selectedGame.Id">Bekijk het bordspel →</a>
+                <a class="button" href="/games/@selectedGame.Id">Bekijk het bordspel</a>
             </div>
         }
     </section>
+}
+
+@if (showResultPopup && selectedGame is not null)
+{
+    <div class="wheel-popup-backdrop" @onclick="CloseResultPopup">
+        <div class="wheel-popup" role="dialog" aria-modal="true" aria-labelledby="wheel-popup-title"
+             @onclick:stopPropagation="true" @onkeydown="OnPopupKeyDown">
+            <button type="button" class="wheel-popup-close" aria-label="Sluit de uitslag" @ref="popupCloseButton" @onclick="CloseResultPopup">×</button>
+            <span class="wheel-popup-eyebrow">Winnaar:</span>
+            <h2 id="wheel-popup-title">@selectedGame.Name</h2>
+            <p>@selectedGame.MinPlayers–@(selectedGame.MaxPlayers?.ToString() ?? "∞") spelers · circa @selectedGame.EstimatedMinutes minuten</p>
+            <div class="wheel-popup-actions">
+                <a class="button" href="/games/@selectedGame.Id">Bekijk het bordspel</a>
+                <button type="button" class="secondary" @onclick="CloseResultPopup">Sluiten</button>
+            </div>
+        </div>
+    </div>
 }

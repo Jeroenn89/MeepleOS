@@ -1,4 +1,6 @@
 using MeepleOS.BusinessLayer.Services;
+using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.Components.Web;
 
 namespace MeepleOS.Web.Components.Pages;
 
@@ -13,6 +15,9 @@ public partial class Wheel : IDisposable
     private List<BoardgameResult>? games;
     private List<BoardgameResult> wheelGames = [];
     private BoardgameResult? selectedGame;
+    private bool showResultPopup;
+    private bool focusResultPopup;
+    private ElementReference popupCloseButton;
     private int playerCount = 4;
     private int maxMinutes = 90;
     private int wheelVersion;
@@ -71,11 +76,20 @@ public partial class Wheel : IDisposable
         RebuildWheel();
     }
 
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!focusResultPopup) return;
+        focusResultPopup = false;
+        await popupCloseButton.FocusAsync();
+    }
+
     private void RebuildWheel()
     {
         if (spinning) return;
         wheelGames = EligibleGames.OrderBy(_ => Random.Shared.Next()).ToList();
         selectedGame = null;
+        showResultPopup = false;
+        focusResultPopup = false;
         rotationDegrees = 0;
         wheelVersion++;
     }
@@ -86,6 +100,8 @@ public partial class Wheel : IDisposable
 
         spinning = true;
         selectedGame = null;
+        showResultPopup = false;
+        focusResultPopup = false;
         StateHasChanged();
         try
         {
@@ -102,11 +118,24 @@ public partial class Wheel : IDisposable
             await Task.Delay(5100, spinCancellation.Token);
             selectedGame = wheelGames[index];
             spinning = false;
+            showResultPopup = true;
+            focusResultPopup = true;
         }
         catch (OperationCanceledException)
         {
             // Navigeren van de pagina stopt een lopende draai.
         }
+    }
+
+    private void CloseResultPopup()
+    {
+        showResultPopup = false;
+        focusResultPopup = false;
+    }
+
+    private void OnPopupKeyDown(KeyboardEventArgs args)
+    {
+        if (args.Key == "Escape") CloseResultPopup();
     }
 
     public void Dispose()

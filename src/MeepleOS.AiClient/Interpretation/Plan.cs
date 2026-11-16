@@ -9,6 +9,7 @@ public sealed class Plan
 {
     public string? Question { get; set; }
     public string? GameChoice { get; set; }
+    public string? AlternativeGameName { get; set; }
     public List<ActionPlan> Actions { get; set; } = [];
 }
 

@@ -5,20 +5,20 @@
 <h1>AI-chat</h1>
 <p class="intro">Stel een vraag of registreer een potje in het Nederlands.</p>
 <div class="chat-window" aria-live="polite" @ref="chatWindow">
-    @foreach(var m in messages)
+    @foreach (var exchange in ChatService.Conversation.Exchanges)
     {
-        <p class="chat-message @(m.User?"user":"assistant")">
-            <b>@(m.User?"Jij":"MeepleOS")</b>
-            <br>
-            @if (m.User)
-            {
-                @m.Text
-            }
-            else
-            {
-                @RenderMessage(m.Text)
-            }
+        <p class="chat-message user">
+            <b>Jij</b>
+            <span class="chat-message-text">@exchange.Request</span>
         </p>
+        @if (exchange.Response is not null)
+        {
+            <p class="chat-message assistant">
+                <b>MeepleOS</b>
+                <span class="chat-message-text">@RenderMessage(exchange.Response)</span>
+            </p>
+            <p class="chat-request-counts">Gemini-verzoeken: @exchange.GeminiRequests · Tavily-verzoeken: @exchange.TavilyRequests</p>
+        }
     }
     @if (busy)
     {
@@ -32,7 +32,7 @@
 {
     <div class="card confirm">
         <p>Bevestig deze ingrijpende opdracht voordat ik hem uitvoer:</p>
-        <blockquote>@pending</blockquote>
+        <blockquote>@pending.Request</blockquote>
         <button class="danger" disabled="@busy" @onclick="Confirm">Bevestig en voer uit</button>
         <button class="secondary" disabled="@busy" @onclick="Cancel">Annuleren</button>
     </div>
