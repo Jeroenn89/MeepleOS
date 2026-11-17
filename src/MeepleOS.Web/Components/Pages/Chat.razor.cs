@@ -44,7 +44,10 @@ public partial class Chat : IDisposable
     private bool scrollPending;
 
     protected override void OnInitialized()
-        => ChatService.Conversation.Changed += ConversationChanged;
+    {
+        ChatService.Conversation.Changed += ConversationChanged;
+        scrollPending = ChatService.Conversation.Exchanges.Count > 0;
+    }
 
     private void ConversationChanged()
         => _ = InvokeAsync(() =>

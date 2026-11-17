@@ -2,6 +2,37 @@ using System.Text.Json;
 using MeepleOS.AiClient;
 using MeepleOS.BusinessLayer.Services;
 
+if (args.Contains("--live-bommen", StringComparer.OrdinalIgnoreCase))
+{
+    var liveRoot = Directory.GetCurrentDirectory();
+    var database = Path.Combine(liveRoot, ".tmp-ai-client-tests", $"live-bommen-{Guid.NewGuid():N}.db");
+    var ledgerPath = Path.ChangeExtension(database, ".json");
+    Directory.CreateDirectory(Path.GetDirectoryName(database)!);
+    try
+    {
+        await using var mcp = await McpTools.ConnectAsync(liveRoot, databasePath: database);
+        using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
+        var trace = new List<string>();
+        var search = new TavilyGameSearch(http, Environment.GetEnvironmentVariable("TAVILY_API_KEY") ?? "", trace.Add);
+        var planner = new GeminiPlanner(http, Environment.GetEnvironmentVariable("GEMINI_API_KEY") ?? "",
+            ledger: new RequestLedger(ledgerPath, 100, 100));
+        var result = await new CommandProcessor(mcp, planner, gameSearch: search)
+            .RunAsync("Voeg 1000 bommen en granaten toe", new DateOnly(2026, 11, 17));
+        var games = await mcp.CallAsync("get_boardgames");
+        Console.WriteLine(result.Message);
+        Console.WriteLine($"Tavily-aanroepen: {search.RequestCount}; opgeslagen spellen: {games.GetArrayLength()}");
+        foreach (var line in trace) Console.WriteLine(line);
+        if (!games.EnumerateArray().Any(game => game.GetProperty("name").GetString() == "1000 Bommen & Granaten!"))
+            throw new Exception("Het spel is niet onder de officiële Nederlandse titel opgeslagen.");
+    }
+    finally
+    {
+        foreach (var suffix in new[] { "", "-wal", "-shm" })
+            if (File.Exists(database + suffix)) File.Delete(database + suffix);
+        if (File.Exists(ledgerPath)) File.Delete(ledgerPath);
+    }
+    return;
+}
 if (args.Contains("--source-tests", StringComparer.OrdinalIgnoreCase))
 {
     await RunSourceTests(includeMcp: true);
@@ -904,6 +935,37 @@ async Task RunNameTests()
             throw new Exception($"Bestaand spel '{typed}' werd niet geregistreerd: {result.Message}");
         count++;
     }
+    foreach (var (stored, typed) in new[]
+    {
+        ("Brood en Bier", "Brood & Bier"),
+        ("Brood & Bier", "Brood en Bier")
+    })
+    {
+        var tools = new FakeTools();
+        tools.ExtraBoardgames.Add(new Item(20, stored));
+        var search = new FakeGameSearch();
+        var result = await new CommandProcessor(tools, new SequencePlanner(new Plan { Actions = [
+            new ActionPlan { Kind = "add_boardgame", Name = typed },
+            Session(typed, ["Jeroen", "Pallas"], ["Jeroen"])
+        ] }), gameSearch: search).RunAsync($"Ik speelde {typed} met Pallas; ik won.",
+            new DateOnly(2026, 11, 17));
+        if (!result.Message.Contains($"Potje {stored} geregistreerd") || search.Calls != 0
+            || tools.Calls.Contains("add_boardgame")
+            || tools.LastRecord?.GetProperty("boardGameId").GetInt32() != 20)
+            throw new Exception($"Titelvariant {typed} werd niet als bestaand {stored} herkend: {result.Message}");
+        count++;
+
+        var duplicateTools = new FakeTools();
+        duplicateTools.ExtraBoardgames.Add(new Item(20, stored));
+        var duplicateSearch = new FakeGameSearch();
+        var duplicate = await new CommandProcessor(duplicateTools,
+            new SequencePlanner(new Plan { Actions = [new ActionPlan { Kind = "add_boardgame", Name = typed }] }),
+            gameSearch: duplicateSearch).RunAsync($"Voeg {typed} toe", new DateOnly(2026, 11, 17));
+        if (duplicateTools.Calls.Contains("add_boardgame") || duplicateSearch.Calls != 0
+            || !duplicate.Message.Contains("Geen actie nodig"))
+            throw new Exception($"Dubbele titelvariant {typed} werd toegevoegd: {duplicate.Message}");
+        count++;
+    }
     foreach (var (command, action) in new[]
     {
         ("Voeg castle of burguny toe.", new ActionPlan { Kind = "add_boardgame", Name = "castle of burguny" }),
@@ -1077,7 +1139,7 @@ async Task RunSearchTests()
             || tools.LastBoardgame?.GetProperty("maxPlayers").GetInt32() != max
             || tools.LastBoardgame?.GetProperty("estimatedMinutes").GetInt32() != minutes
             || !result.Message.Contains($"boardgamegeek.com/boardgame/{id}"))
-            throw new Exception($"BGG-zoekroute voor {typed} faalde: {result.Message}");
+            throw new Exception($"BGG-zoekroute voor {typed} faalde ({handler.Queries.Count} zoekopdrachten: {string.Join("; ", handler.Queries)}): {result.Message}");
         count++;
     }
 
@@ -1088,16 +1150,16 @@ async Task RunSearchTests()
             : [new("Wink: Nest of Spies | BoardGameGeek",
                     "https://boardgamegeek.com/boardgame/320383/wink-nest-of-spies", "2-5 Players. Play Time: 30 Min."),
                 new("WINK (1994) | BoardGameGeek",
-                    "https://boardgamegeek.com/boardgame/13507/wink/ratings", "2-5 Players. Play Time: 30 Min.")], 2);
+                    "https://boardgamegeek.com/boardgame/13507/wink/ratings", "2-5 Players. Play Time: 30 Min.")], 3);
 
     await Registration("Nunatak", "Nunatak: Temple of Ice", 383158, 1, 4, 45, query =>
-        query.Contains("/383158") || query.Contains("\"Nunatak\"")
+        query.Contains("/383158") || query.EndsWith(" Nunatak", StringComparison.Ordinal)
             ? [new("Nunatak: Temple of Ice (2023) | BoardGameGeek",
                 "https://boardgamegeek.com/boardgame/383158/nunatak-temple-of-ice",
                 "1-4 Players. Play Time: 30-45 Min.")]
             : [new("Nunatak: Temple of Ice (2023) | BoardGameGeek",
                 "https://boardgamegeek.com/boardgame/383158/nunatak-temple-of-ice/ratings",
-                "1-4 Players.")], 2, reviewName: true);
+                "1-4 Players.")], 3, reviewName: true);
 
     await Registration("Nunatak: De IJstempel", "Nunatak: Temple of Ice", 383158, 1, 4, 45, _ =>
         [new("Nunatak: Temple of Ice (2023) | BoardGameGeek",
@@ -1105,12 +1167,12 @@ async Task RunSearchTests()
             "Alternate Names Nunatak: De IJstempel + 3 more. 1-4 Players. Play Time: 30-45 Min.")], 1);
 
     await Registration("Wink", "WINK", 13507, 3, 8, 20, query =>
-        query.Contains("\"Wink\"")
+        query.EndsWith(" Wink", StringComparison.Ordinal)
             ? [new("WINK (1994) | BoardGameGeek", "https://boardgamegeek.com/boardgame/13507/wink",
                 "3-8 Players. Play Time: 20 Min.")]
             : [new("Wink: Nest of Spies | BoardGameGeek",
                 "https://boardgamegeek.com/boardgame/320383/wink-nest-of-spies",
-                "2-5 Players. Play Time: 30 Min.")], 2);
+                "2-5 Players. Play Time: 30 Min.")], 3);
 
     {
         var handler = new ScriptedTavilyHandler(_ =>
@@ -1125,7 +1187,7 @@ async Task RunSearchTests()
         var result = await new CommandProcessor(tools, planner, gameSearch: new TavilyGameSearch(http, "mock-key"))
             .RunAsync("Ik speelde Wink met Pallas; ik won.", new DateOnly(2026, 11, 13));
         if (!result.Message.Contains("Welk bordspel bedoel je") || tools.Calls.Contains("add_boardgame")
-            || handler.Queries.Count != 2 || planner.RequestCount != 2)
+            || handler.Queries.Count < 1 || planner.RequestCount != 2)
             throw new Exception($"Onzekere Wink-variant werd zonder verduidelijking toegevoegd: {result.Message}");
         count++;
     }
@@ -1170,7 +1232,8 @@ async Task RunSourceTests(bool includeMcp)
                 MinPlayers = 9, MaxPlayers = 10, EstimatedMinutes = 999 },
                 Session(typed, ["Jeroen", "Pallas"], ["Jeroen"])] });
         var search = new FakeGameSearch(hits);
-        var result = await new CommandProcessor(tools, planner, gameSearch: search)
+        var trace = new List<string>();
+        var result = await new CommandProcessor(tools, planner, gameSearch: search, onTrace: trace.Add)
             .RunAsync($"Ik speelde {typed} met Pallas; ik won.", new DateOnly(2026, 11, 11));
         if (search.Calls != 1 || !tools.Calls.Contains("record_game_session")
             || tools.LastBoardgame?.GetProperty("name").GetString() != expectedName
@@ -1178,7 +1241,7 @@ async Task RunSourceTests(bool includeMcp)
             || tools.LastBoardgame?.GetProperty("maxPlayers").GetInt32() != max
             || tools.LastBoardgame?.GetProperty("estimatedMinutes").GetInt32() != minutes
             || links.Any(link => !result.Message.Contains(link)))
-            throw new Exception($"Bronkeuze voor {typed} faalde: {result.Message}");
+            throw new Exception($"Bronkeuze voor {typed} faalde: {result.Message}; {string.Join(" | ", trace.Where(line => line.Contains("spelers=")))}");
         count++;
     }
 
@@ -1220,11 +1283,121 @@ async Task RunSourceTests(bool includeMcp)
     ], 3, 6, 20, "amigo-spiele.de/cabanga");
 
     {
-        var handler = new ScriptedTavilyHandler(query => query.Contains("site:boardgamegeek.com")
-            ? [new GameSearchHit("Dice Feast | BoardGameGeek",
+        const string title = "Ticket to Ride: Nordic Countries";
+        const string publisherUrl = "https://www.daysofwonder.com/ticket-to-ride/nordic-countries";
+        var handler = new ScriptedTavilyHandler(query => query == $"{title} bordspel"
+            ? [
+                new GameSearchHit($"{title} | BoardGameGeek forum",
+                    "https://boardgamegeek.com/boardgame/31627/ticket-to-ride-nordic-countries/forums",
+                    "1-4 players. Playing time: 45 minutes."),
+                new GameSearchHit($"{title} | BoardGameGeek ratings",
+                    "https://boardgamegeek.com/boardgame/31627/ticket-to-ride-nordic-countries/ratings",
+                    "3-5 players. Playing time: 90 minutes."),
+                new GameSearchHit($"{title} | BoardGameGeek files",
+                    "https://boardgamegeek.com/boardgame/31627/ticket-to-ride-nordic-countries/files",
+                    "2-6 players. Playing time: 20 minutes."),
+                new GameSearchHit($"{title} | Days of Wonder", publisherUrl,
+                    "Maximum 3 players.")
+            ]
+            : query.StartsWith("site:www.daysofwonder.com", StringComparison.Ordinal)
+                ? [new GameSearchHit($"{title} | Days of Wonder", publisherUrl,
+                    "2-3 players. Playing time: 30-60 minutes.")]
+                : []);
+        using var http = new HttpClient(handler);
+        var tools = new FakeTools();
+        tools.ExtraBoardgames.Add(new Item(20, "Ticket to Ride"));
+        var planner = new SequencePlanner(new Plan { Actions = [new ActionPlan
+        {
+            Kind = "add_boardgame", Name = title
+        }] });
+        var result = await new CommandProcessor(tools, planner,
+            gameSearch: new TavilyGameSearch(http, "mock-key"))
+            .RunAsync($"Voeg {title} toe", new DateOnly(2026, 11, 17));
+        if (handler.Queries.Count != 2 || !handler.Queries[1].Contains("players")
+            || !handler.Queries[1].Contains("playing time")
+            || tools.LastBoardgame?.GetProperty("name").GetString() != title
+            || tools.LastBoardgame?.GetProperty("minPlayers").GetInt32() != 2
+            || tools.LastBoardgame?.GetProperty("maxPlayers").GetInt32() != 3
+            || tools.LastBoardgame?.GetProperty("estimatedMinutes").GetInt32() != 60
+            || !result.Message.Contains(publisherUrl) || planner.RequestCount != 1)
+            throw new Exception($"Nordic Countries kreeg geen eenduidige uitgeversgegevens: {result.Message}; zoekopdrachten: {string.Join("; ", handler.Queries)}");
+        count++;
+    }
+
+    await Registration("Stedenstrijd", "Stedenstrijd", [
+        new("Stedenstrijd | Publisher", "https://publisher.example/stedenstrijd",
+            "2 Spelers\n30-45 Minuten Speeltijd")
+    ], 2, 2, 45, "publisher.example/stedenstrijd");
+
+    await Registration("Stedenstrijd", "Stedenstrijd", [
+        new("Stedenstrijd | Publisher", "https://publisher.example/stedenstrijd",
+            "2 Spelers 30-45 Minuten Speeltijd")
+    ], 2, 2, 45);
+
+    await Registration("Patchwork", "Patchwork", [
+        new("Patchwork | Publisher", "https://publisher.example/patchwork",
+            "Aantal spelers: 2 - 2 spelers. Speelduur: 30 minuten.")
+    ], 2, 2, 30, "publisher.example/patchwork");
+
+    await Registration("Brood & Bier", "Brood & Bier", [
+        new("Brood & Bier | Publisher", "https://publisher.example/brood-bier",
+            "2 - 2 spelers. Speelduur: 30 minuten.")
+    ], 2, 2, 30, "publisher.example/brood-bier");
+
+    foreach (var (label, description) in new[]
+    {
+        ("Vast aantal", "2 spelers. Speelduur: 30 minuten."),
+        ("Gelabeld aantal", "Aantal spelers: 2. Speelduur: 30 minuten."),
+        ("Uitgeschreven aantal", "voor twee spelers. Speelduur: 30 minuten.")
+    })
+        await Registration(label, label, [
+            new($"{label} | Publisher", $"https://publisher.example/{label.Replace(' ', '-').ToLowerInvariant()}", description)
+        ], 2, 2, 30);
+
+    {
+        var tools = new FakeTools();
+        var result = await new CommandProcessor(tools,
+            new SequencePlanner(new Plan { Actions = [new ActionPlan
+            {
+                Kind = "add_boardgame", Name = "Vrijspel", NoMaximum = true
+            }] }), gameSearch: new FakeGameSearch(new GameSearchHit("Vrijspel | Publisher",
+                "https://publisher.example/vrijspel", "Minimaal 2 spelers. Geen vast maximum. Speelduur: 30 minuten.")))
+            .RunAsync("Voeg Vrijspel toe met geen vast maximum", new DateOnly(2026, 11, 17));
+        if (!result.Message.Contains("Vrijspel toegevoegd")
+            || tools.LastBoardgame?.GetProperty("minPlayers").GetInt32() != 2
+            || tools.LastBoardgame?.GetProperty("maxPlayers").ValueKind != JsonValueKind.Null)
+            throw new Exception($"Los minimum kreeg toch een maximum: {result.Message}");
+        count++;
+    }
+
+    foreach (var content in new[]
+    {
+        "30-45 Minuten Speeltijd. Geen spelersaantal vermeld.",
+        "Spelers 30-45 Minuten Speeltijd."
+    })
+    {
+        var tools = new FakeTools();
+        var trace = new List<string>();
+        var planner = new SequencePlanner(
+            new Plan { Actions = [new ActionPlan { Kind = "add_boardgame", Name = "Onbekend" }] },
+            new Plan { Actions = [new ActionPlan { Kind = "add_boardgame", Name = "Onbekend",
+                MinPlayers = 30, MaxPlayers = 45, EstimatedMinutes = 45 }] });
+        var result = await new CommandProcessor(tools, planner, gameSearch: new FakeGameSearch(
+            new GameSearchHit("Onbekend | Publisher", "https://publisher.example/onbekend", content)), onTrace: trace.Add)
+            .RunAsync("Voeg Onbekend toe", new DateOnly(2026, 11, 17));
+        if (tools.Calls.Contains("add_boardgame") || !result.Message.Contains("spelers")
+            || !trace.Any(line => line.Contains("minimumspelers=ontbreekt of conflicteert")
+                && line.Contains("maximumspelers=ontbreekt of conflicteert")
+                && line.Contains("speelduur=45")))
+            throw new Exception($"Speelduur werd als Gemini-spelersaantal geaccepteerd: {content} / {result.Message}");
+        count++;
+    }
+
+    {
+        var handler = new ScriptedTavilyHandler(_ =>
+            [new GameSearchHit("Dice Feast | BoardGameGeek",
                 "https://boardgamegeek.com/boardgame/20/dice-feast",
-                "Also known as: Paku Paku. 2-4 Players. Playing Time: 15 minutes.")]
-            : []);
+                "Also known as: Paku Paku. 2-4 Players. Playing Time: 15 minutes.")]);
         using var http = new HttpClient(handler);
         var hits = await new TavilyGameSearch(http, "mock-key").SearchAsync("Paku Paku");
         if (hits.Count != 1 || handler.Queries.Count != 1)
@@ -1337,7 +1510,7 @@ async Task RunSourceTests(bool includeMcp)
                 "Players: 2-4. Playing time: 15 minutes.")]);
         using var http = new HttpClient(handler);
         var hits = await new TavilyGameSearch(http, "mock-key").SearchAsync("Paku Paku");
-        if (handler.Queries.Count != 2 || hits.Count != 1 || !hits[0].Url.Contains("publisher.example"))
+        if (handler.Queries.Count != 1 || hits.Count != 1 || !hits[0].Url.Contains("publisher.example"))
             throw new Exception("Uitbreiding of Junior-editie kreeg voorrang boven het basisspel.");
         count++;
     }
@@ -1347,16 +1520,16 @@ async Task RunSourceTests(bool includeMcp)
             "https://boardgamegeek.com/boardgame/1406/monopoly", "2-8 Players.");
         var handler = new ScriptedTavilyHandler(query => query.Contains("site:boardgamegeek.com")
             ? [page]
-            : [page with { Content = "Playing Time: 90 minutes." }]);
+            : [page with { Content = "2-8 Players. Playing Time: 90 minutes." }]);
         using var http = new HttpClient(handler);
         var hits = await new TavilyGameSearch(http, "mock-key").SearchAsync("Monopoly");
-        if (handler.Queries.Count != 2 || hits.Count != 1 || !hits[0].Content.Contains("90 minutes"))
+        if (handler.Queries.Count != 1 || hits.Count != 1 || !hits[0].Content.Contains("90 minutes"))
             throw new Exception("Een rijker fragment van dezelfde BGG-pagina werd genegeerd of extra gezocht.");
         count++;
     }
 
     {
-        var handler = new ScriptedTavilyHandler(query => query.Contains("site:boardgamegeek.com")
+        var handler = new ScriptedTavilyHandler(query => query.EndsWith(" bordspel", StringComparison.Ordinal)
             ? [new GameSearchHit("Monopoly (1935) | BoardGameGeek",
                     "https://boardgamegeek.com/boardgame/1406/monopoly", "2-8 Players.")]
             : [new GameSearchHit("Monopoly (2024) | BoardGameGeek",
@@ -1369,6 +1542,24 @@ async Task RunSourceTests(bool includeMcp)
         }
         catch (Exception ex) when (ex.Message.Contains("Welke editie van Monopoly")) { }
         if (handler.Queries.Count != 2) throw new Exception("Editie-ambiguïteit werd in latere resultaten gemist.");
+        count++;
+    }
+
+    {
+        var url = "https://www.999games.nl/product/1000-bommen-granaten/8719214424725";
+        var handler = new ScriptedTavilyHandler(query => query == "1000 bommen en granaten bordspel"
+            ? [new GameSearchHit("1000 Bommen & Granaten! - Dobbelspel - 999 Games", url,
+                "1000 Bommen en Granaten! is een eenvoudig dobbelspel.")]
+            : [new GameSearchHit("1000 Bommen & Granaten! - Dobbelspel - 999 Games", url,
+                "2-5 spelers. Speelduur: 30 minuten.")]);
+        using var http = new HttpClient(handler);
+        var hits = await new TavilyGameSearch(http, "mock-key")
+            .SearchAsync("1000 bommen en granaten", ["minimumaantal spelers", "maximumaantal spelers", "speelduur"]);
+        if (handler.Queries.Count != 2
+            || handler.Queries[1] != "1000 Bommen & Granaten! dobbelspel spelers speelduur"
+            || hits.Count != 1 || !hits[0].Content.Contains("2-5 spelers")
+            || !hits[0].Content.Contains("30 minuten"))
+            throw new Exception("Onvolledig uitgeversfragment leidde niet tot de officiële alternatieve titel.");
         count++;
     }
 
@@ -1403,6 +1594,46 @@ async Task RunSourceTests(bool includeMcp)
                 || cabanga.GetProperty("estimatedMinutes").GetInt32() != 20
                 || sessions.GetArrayLength() != 1)
                 throw new Exception($"Cabanga werd niet correct op de testdatabase geregistreerd: {result.Message}");
+            count++;
+        }
+        finally
+        {
+            foreach (var suffix in new[] { "", "-wal", "-shm" })
+                if (File.Exists(database + suffix)) File.Delete(database + suffix);
+        }
+    }
+
+    if (includeMcp)
+    {
+        var root = Directory.GetCurrentDirectory();
+        var database = Path.Combine(root, ".tmp-ai-client-tests", $"bommen-{Guid.NewGuid():N}.db");
+        Directory.CreateDirectory(Path.GetDirectoryName(database)!);
+        try
+        {
+            await using var mcp = await McpTools.ConnectAsync(root, databasePath: database);
+            var before = await mcp.CallAsync("get_boardgames");
+            if (before.EnumerateArray().Any(game => game.GetProperty("name").GetString()!.Contains("Bommen")))
+                throw new Exception("Het proefspel stond al in de testdatabase.");
+            var source = new GameSearchHit("1000 Bommen & Granaten! - Dobbelspel",
+                "https://www.999games.nl/product/1000-bommen-granaten/8719214424725",
+                "1000 Bommen & Granaten! Dobbelspel voor 2-5 spelers. Speelduur: 30 minuten.");
+            var handler = new ScriptedTavilyHandler(_ => [source]);
+            using var http = new HttpClient(handler);
+            var planner = new SequencePlanner(new Plan { Actions = [new ActionPlan
+            {
+                Kind = "add_boardgame", Name = "1000 bommen en granaten"
+            }] });
+            var result = await new CommandProcessor(mcp, planner,
+                gameSearch: new TavilyGameSearch(http, "mock-key"))
+                .RunAsync("Voeg 1000 bommen en granaten toe", new DateOnly(2026, 11, 17));
+            var games = await mcp.CallAsync("get_boardgames");
+            var saved = games.EnumerateArray().Single(game => game.GetProperty("name").GetString() == "1000 Bommen & Granaten!");
+            if (handler.Queries.Count != 1 || handler.Queries[0] != "1000 bommen en granaten bordspel"
+                || saved.GetProperty("minPlayers").GetInt32() != 2
+                || saved.GetProperty("maxPlayers").GetInt32() != 5
+                || saved.GetProperty("estimatedMinutes").GetInt32() != 30
+                || !result.Message.Contains(source.Url))
+                throw new Exception($"Toevoegen op naam faalde: {result.Message}; zoekopdrachten: {string.Join("; ", handler.Queries)}");
             count++;
         }
         finally

@@ -5,13 +5,13 @@ namespace MeepleOS.AiClient;
 internal static class BoardgameMention
 {
     private static readonly Regex AfterCue = new(
-        @"\b(?:speelde|registreer|registreren|bordspel|potje|voeg|wijzig|verwijder|wis)\s+(?:(?:een|het)\s+)?(?:(?:potje|bordspel|spel)\s+)?(?<name>[\p{L}\p{N}' -]{2,80}?)(?=\s+(?:met|tegen|vandaag|gisteren|op|gespeeld|toe|aan)\b|[.,;!?]|$)",
+        @"\b(?:speelde|registreer|registreren|bordspel|potje|voeg|wijzig|verwijder|wis)\s+(?:(?:een|het)\s+)?(?:(?:potje|bordspel|spel)\s+)?(?<name>[\p{L}\p{N}' &-]{2,80}?)(?=\s+(?:met|tegen|vandaag|gisteren|op|gespeeld|toe|aan)\b|[.,;!?]|$)",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex BeforePlayed = new(
-        @"(?<name>[\p{L}\p{N}' -]{2,80}?)\s+gespeeld\b",
+        @"(?<name>[\p{L}\p{N}' &-]{2,80}?)\s+gespeeld\b",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex BeforeAction = new(
-        @"(?<name>[\p{L}\p{N}' -]{2,80}?)\s+(?:registreren|wijzigen|verwijderen|wissen)\b",
+        @"(?<name>[\p{L}\p{N}' &-]{2,80}?)\s+(?:registreren|wijzigen|verwijderen|wissen)\b",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     internal sealed record Result(Item? Game, string? Mention, IReadOnlyList<Item> Ambiguous);

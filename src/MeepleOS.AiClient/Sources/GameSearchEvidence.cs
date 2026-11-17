@@ -5,12 +5,16 @@ namespace MeepleOS.AiClient;
 internal static class GameSearchEvidence
 {
     private static readonly Regex PlayerRange = new(@"(?<!\d)(?<min>\d+)\s*(?:-|–|—|to|tot)\s*(?<max>\d+)\s*(?:players?|spelers?)\b|\b(?:players?|spelers?)\s*:?\s*(?<min2>\d+)\s*(?:-|–|—|to|tot)\s*(?<max2>\d+)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled);
-    private static readonly Regex Minimum = new(@"\b(?:minimum|min(?:imum)?\.?)\s*(?:of\s*)?(?<value>\d+)\s*(?:players?|spelers?)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled);
-    private static readonly Regex Maximum = new(@"\b(?:maximum|max(?:imum)?\.?)\s*(?:of\s*)?(?<value>\d+)\s*(?:players?|spelers?)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex Minimum = new(@"\b(?:minimum|min(?:imum)?\.?|minimaal|vanaf|at[ \t]+least)[ \t]*:?[ \t]*(?:of[ \t]+)?(?<value>\d+)[ \t]*(?:players?|spelers?)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex Maximum = new(@"\b(?:maximum|max(?:imum)?\.?|maximaal)[ \t]*:?[ \t]*(?:of[ \t]+)?(?<value>\d+)[ \t]*(?:players?|spelers?)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex DurationLabel = new(@"\b(?:playing\s*time|play\s*time|playtime|duration|speelduur|speeltijd|game\s*time)\s*:?\s*(?<min>\d+)\s*(?:(?:-|–|—|to|tot)\s*(?<max>\d+))?\s*(?:minutes?|minuten|min\.?)?\b", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex DurationValue = new(@"(?<![\d-])(?<min>\d+)\s*(?:(?:-|–|—|to|tot)\s*(?<max>\d+))?\s*(?:minutes?|minuten|min\.?)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex Instructional = new(@"\b(?:learn|how\s+to\s+play|tutorial|rules|uitleg|spelregels|video|review)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex PlayerCount = new(@"\b(?:players?|spelers?|player\s*count|aantal\s+spelers)\s*:?\s*(?<min>\d+)\s*(?:-|–|—|to|tot|t/m)\s*(?<max>\d+)\b|\b(?:for|voor|with|met)\s+(?<min2>\d+)\s*(?:-|–|—|to|tot|t/m)\s*(?<max2>\d+)\s*(?:players?|spelers?)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    private static readonly Regex FixedPlayerCount = new(@"(?<!\d)(?<value>\d+)[ \t]*(?:players?|spelers?)\b|\b(?:aantal[ \t]+spelers|player[ \t]+count|players?|spelers?)[ \t]*:?[ \t]*(?<value2>\d+)\b(?![ \t]*(?:-|\u2013|\u2014|minutes?|minuten|min\.?|speelduur|speeltijd))", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex WordPlayerCount = new(@"\b(?<value>een|één|twee|drie|vier|vijf|zes|zeven|acht|negen|tien|elf|twaalf|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)[ \t]+(?:spelers?|players?)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex NoFixedMaximum = new(@"\b(?:geen[ \t]+(?:vast[ \t]+)?maximum|no[ \t]+(?:fixed[ \t]+)?maximum)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     internal sealed record Facts(int? MinPlayers, int? MaxPlayers, int? EstimatedMinutes)
     {
@@ -77,14 +81,30 @@ internal static class GameSearchEvidence
             var content = hit.Content;
             if (fact is "minimumaantal spelers" or "maximumaantal spelers")
             {
-                foreach (Match match in PlayerRange.Matches(content))
+                var ranges = PlayerRange.Matches(content).Cast<Match>()
+                    .Where(match => IsPlayerRange(content, match)).ToArray();
+                foreach (var match in ranges)
                     Add(match.Groups[fact == "minimumaantal spelers"
                         ? (match.Groups["min"].Success ? "min" : "min2")
                         : (match.Groups["max"].Success ? "max" : "max2")].Value);
                 foreach (Match match in PlayerCount.Matches(content))
+                {
+                    if (!IsPlayerRange(content, match)) continue;
                     Add(match.Groups[fact == "minimumaantal spelers"
                         ? (match.Groups["min"].Success ? "min" : "min2")
                         : (match.Groups["max"].Success ? "max" : "max2")].Value);
+                }
+                foreach (Match match in FixedPlayerCount.Matches(content))
+                {
+                    var number = match.Groups[match.Groups["value"].Success ? "value" : "value2"];
+                    if (ranges.Any(range => number.Index >= range.Index && number.Index < range.Index + range.Length)
+                        || IsQualifiedCount(content, number.Index)
+                        || fact == "maximumaantal spelers" && NoFixedMaximum.IsMatch(content)) continue;
+                    Add(number.Value);
+                }
+                if (fact == "minimumaantal spelers" || !NoFixedMaximum.IsMatch(content))
+                    foreach (Match match in WordPlayerCount.Matches(content))
+                        Add(WordNumber(match.Groups["value"].Value));
                 foreach (Match match in (fact == "minimumaantal spelers" ? Minimum : Maximum).Matches(content))
                     Add(match.Groups["value"].Value);
             }
@@ -126,6 +146,7 @@ internal static class GameSearchEvidence
     private static bool SupportsHit(GameSearchHit hit, int value, string fact)
     {
         if (RawValues([hit], fact).Contains(value)) return true;
+        if (fact is "minimumaantal spelers" or "maximumaantal spelers") return false;
         var number = $@"(?<!\d){value}(?!\d)";
         var topic = fact == "speelduur"
             ? @"(?:minutes?|minuten|min\.?|speelduur|speeltijd|playing\s*time|play\s*time|duration)"
@@ -140,6 +161,33 @@ internal static class GameSearchEvidence
         }
         return false;
     }
+
+    private static bool IsPlayerRange(string content, Match match)
+    {
+        if (match.Value.Contains('\n') || match.Value.Contains('\r')) return false;
+        if (!Regex.IsMatch(match.Value, @"^(?:aantal|player|spelers?)\b", RegexOptions.IgnoreCase)) return true;
+        return !Regex.IsMatch(content[(match.Index + match.Length)..],
+            @"^[ \t]*(?:minutes?|minuten|min\.?|speelduur|speeltijd)\b", RegexOptions.IgnoreCase);
+    }
+
+    private static bool IsQualifiedCount(string content, int numberIndex)
+    {
+        var start = Math.Max(0, numberIndex - 32);
+        return Regex.IsMatch(content[start..numberIndex],
+            @"(?:\b(?:minimaal|minimum|vanaf|at[ \t]+least|maximum|maximaal|max(?:imum)?\.)[ \t]*:?[ \t]*)$",
+            RegexOptions.IgnoreCase);
+    }
+
+    private static string WordNumber(string word) => word.ToLowerInvariant() switch
+    {
+        "een" or "één" or "one" => "1", "twee" or "two" => "2",
+        "drie" or "three" => "3", "vier" or "four" => "4",
+        "vijf" or "five" => "5", "zes" or "six" => "6",
+        "zeven" or "seven" => "7", "acht" or "eight" => "8",
+        "negen" or "nine" => "9", "tien" or "ten" => "10",
+        "elf" or "eleven" => "11", "twaalf" or "twelve" => "12",
+        _ => ""
+    };
 
     public static GameSearchHit? PreferredSource(IReadOnlyList<GameSearchHit> hits, int value, string fact)
     {
@@ -162,20 +210,25 @@ internal static class GameSearchEvidence
     private static int Rank(GameSearchHit hit)
     {
         if (IsBgg(hit)) return Regex.IsMatch(new Uri(hit.Url).AbsolutePath,
-            @"^/boardgame/\d+(?:/[^/]+)?/?$", RegexOptions.IgnoreCase) ? 4 : 3;
+            @"^/boardgame/\d+(?:/[^/]+)?/?$", RegexOptions.IgnoreCase) ? 4 : 1;
         if (!Uri.TryCreate(hit.Url, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps) return -1;
         var host = uri.Host.ToLowerInvariant();
         if (host.StartsWith("publisher.") || Regex.IsMatch(hit.Title, @"\b(?:official\s+publisher|publisher|uitgever)\b", RegexOptions.IgnoreCase)
             || new[] { "hasbro.com", "amigo-spiele.de", "amigo.games", "ravensburger.com", "ravensburger.de",
-                "999games.nl", "oinkgames.com", "asmodee.com" }.Any(domain => host == domain || host.EndsWith('.' + domain))) return 2;
+                "999games.nl", "oinkgames.com", "asmodee.com", "daysofwonder.com" }
+                .Any(domain => host == domain || host.EndsWith('.' + domain))) return 3;
         if (new[] { "boardgameatlas.com", "boardgameoracle.com", "ludopedia.com.br" }
-            .Any(domain => host == domain || host.EndsWith('.' + domain))) return 1;
+            .Any(domain => host == domain || host.EndsWith('.' + domain))) return 2;
         return 0;
     }
 
+    public static bool IsTrustedSource(GameSearchHit hit) => Rank(hit) is 4 or 3 or 2;
+
+    public static bool IsPublisherSource(GameSearchHit hit) => Rank(hit) == 3;
+
     private static string TierName(int rank) => rank switch
     {
-        4 => "BoardGameGeek", 3 => "BoardGameGeek-subpagina", 2 => "uitgever", 1 => "bordspellendatabase", _ => "overige bronnen"
+        4 => "BoardGameGeek", 3 => "uitgever", 2 => "bordspellendatabase", 1 => "BoardGameGeek-subpagina", _ => "overige bronnen"
     };
 
     private static int Strength(GameSearchHit hit, string fact)

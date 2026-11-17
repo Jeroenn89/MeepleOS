@@ -30,22 +30,21 @@ public sealed partial class TavilyGameSearch
         if (dutchTerms.Length == 0)
             return [];
 
-        var localResults = await searchClient.QueryAsync($"\"{requestedName}\" bordspel {dutchTerms}", ct);
-        var localMatches = MatchingHits(localResults, requestedName, excludedBggIds);
-        if (missingFacts.All(fact => GameSearchEvidence.HasFact(localMatches, fact)))
+        var localMatches = await SearchInitialAndOfficialAsync(requestedName, missingFacts, excludedBggIds, ct);
+        if (HasCompleteTrustedSource(localMatches, requestedName, missingFacts))
             return localMatches;
 
         var internationalResults = await searchClient.QueryAsync(
-            $"\"{alternativeName}\" board game {englishTerms}", ct);
+            $"{alternativeName} board game {englishTerms}", ct);
         var internationalMatches = MatchingHits(internationalResults, alternativeName, excludedBggIds);
         if (internationalMatches.Count == 0)
             return localMatches;
 
-        var aliasEvidence = localResults.Concat(internationalResults).ToArray();
+        var aliasEvidence = localMatches.Concat(internationalResults).ToArray();
         if (!aliasEvidence.Any(hit => ProvesSameGame(hit, requestedName, alternativeName)))
         {
             // De alternatieve titel van Gemini is een zoekhint, geen bewijs voor dezelfde editie.
-            var bridge = await searchClient.QueryAsync($"\"{requestedName}\" \"{alternativeName}\" bordspel", ct);
+            var bridge = await searchClient.QueryAsync($"{requestedName} {alternativeName} bordspel", ct);
             if (!bridge.Any(hit => ProvesSameGame(hit, requestedName, alternativeName)))
             {
                 onTrace?.Invoke($"Geen bron bevestigt dat {requestedName} en {alternativeName} hetzelfde basisspel zijn.");

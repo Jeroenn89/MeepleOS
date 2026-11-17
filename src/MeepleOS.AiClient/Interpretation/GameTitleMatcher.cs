@@ -62,7 +62,8 @@ internal static class GameTitleMatcher
 
     public static string[] Tokens(string value, bool ignoreWords)
     {
-        var decomposed = value.ToLowerInvariant().Normalize(NormalizationForm.FormD);
+        var decomposed = value.Replace("&", " en ", StringComparison.Ordinal)
+            .ToLowerInvariant().Normalize(NormalizationForm.FormD);
         var normalized = new StringBuilder(decomposed.Length);
         foreach (var character in decomposed)
             if (CharUnicodeInfo.GetUnicodeCategory(character) != UnicodeCategory.NonSpacingMark)

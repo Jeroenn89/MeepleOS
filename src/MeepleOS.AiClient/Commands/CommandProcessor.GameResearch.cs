@@ -37,15 +37,29 @@ public sealed partial class CommandProcessor
                     && !alternativeName.Equals(newGame, StringComparison.OrdinalIgnoreCase)
                     && searchHits.Any(hit => TavilyGameSearch.IsMatchingBgg(hit, alternativeName)
                         || GamePageSelector.IsMatchingGeneral(hit, alternativeName));
-                if (searchHits.FirstOrDefault(hit => TavilyGameSearch.IsMatchingBgg(hit, newGame)
+                var matchingBgg = searchHits.Where(hit => TavilyGameSearch.IsMatchingBgg(hit, newGame)
                     || translatedSource && TavilyGameSearch.IsMatchingBgg(hit, alternativeName!)
-                    || chosenHit is not null && TavilyGameSearch.BggId(hit) == TavilyGameSearch.BggId(chosenHit)) is { } bggHit)
+                    || chosenHit is not null && TavilyGameSearch.BggId(hit) == TavilyGameSearch.BggId(chosenHit)).ToArray();
+                var bggHit = matchingBgg.FirstOrDefault(GamePageSelector.IsCanonicalBgg)
+                    ?? matchingBgg.FirstOrDefault();
+                var officialHit = searchHits.FirstOrDefault(hit => GameSearchEvidence.IsPublisherSource(hit)
+                    && GamePageSelector.IsMatchingGeneral(hit, newGame)
+                    && missing.All(fact => GameSearchEvidence.HasFact([hit], fact)));
+                if (bggHit is not null && (GamePageSelector.IsCanonicalBgg(bggHit)
+                    || officialHit is null || chosenHit is not null))
                 {
                     var title = translatedSource ? newGame : chosenHit is null ? TavilyGameSearch.BggTitle(bggHit, newGame)
                         : GameTitleMatcher.PageTitle(bggHit.Title);
                     verifiedGameName = BoardgameMention.FindByName(catalog, title).Game?.Name ?? title;
                     verifiedRequestedName = newGame;
                     onTrace?.Invoke($"BGG-spelnaam voor {newGame}: {verifiedGameName}.");
+                }
+                else if (officialHit is not null)
+                {
+                    var title = GameTitleMatcher.PageTitle(officialHit.Title);
+                    verifiedGameName = BoardgameMention.FindByName(catalog, title).Game?.Name ?? title;
+                    verifiedRequestedName = newGame;
+                    onTrace?.Invoke($"Bron bevestigt spelnaam voor {newGame}: {verifiedGameName}.");
                 }
                 if (gameSearch is not TavilyGameSearch { IsConfigured: false })
                     onTrace?.Invoke($"Tavily geslaagd voor {newGame}; {searchHits.Count} bronresultaten, "
@@ -54,7 +68,7 @@ public sealed partial class CommandProcessor
                 if (CanUseOriginalPlan(fullCommand, translatedSource ? alternativeName! : newGame,
                     originalPlan, missing, searchHits))
                 {
-                    onTrace?.Invoke("BGG leverde alle ontbrekende spelgegevens; bestaand registratieplan wordt direct gecontroleerd.");
+                    onTrace?.Invoke("Betrouwbare bron leverde alle ontbrekende spelgegevens; bestaand registratieplan wordt direct gecontroleerd.");
                 }
                 else if (searchHits.Count > 0)
                 {
@@ -95,15 +109,19 @@ public sealed partial class CommandProcessor
 
         var singleBggGame = hits.All(hit => TavilyGameSearch.IsMatchingBgg(hit, gameName))
             && hits.Select(TavilyGameSearch.BggId).Distinct().Count() == 1;
-        if (!singleBggGame) return false;
-        var nameIsClear = !TavilyGameSearch.NeedsNameReview(hits[0], gameName);
+        var trustedComplete = hits.Any(hit => GameSearchEvidence.IsTrustedSource(hit)
+            && (TavilyGameSearch.IsMatchingBgg(hit, gameName)
+                || GamePageSelector.IsMatchingGeneral(hit, gameName))
+            && missingFacts.All(fact => GameSearchEvidence.HasFact([hit], fact)));
+        if (!singleBggGame && !trustedComplete) return false;
+        var nameIsClear = !singleBggGame || !TavilyGameSearch.NeedsNameReview(hits[0], gameName);
         if (!nameIsClear) return false;
         var factsAreComplete = missingFacts.All(fact => GameSearchEvidence.HasFact(hits, fact));
         if (!factsAreComplete) return false;
         var mentionsPlayed = Regex.IsMatch(command, @"\b(?:gespeeld|speelde)\b", RegexOptions.IgnoreCase);
         var hasSessionAction = originalPlan.Actions.Any(action => action.Kind == "record_session");
 
-        // Bij een eenduidige BGG-bron volstaat het bestaande plan; zo blijft een extra Gemini-aanroep uit.
+        // Bij eenduidige spelgegevens uit een betrouwbare bron volstaat het bestaande plan.
         return !mentionsPlayed || hasSessionAction;
     }
 
