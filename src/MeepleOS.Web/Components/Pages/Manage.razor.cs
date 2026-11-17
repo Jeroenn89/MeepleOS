@@ -1,6 +1,7 @@
 using System.Text.Json;
 using MeepleOS.BusinessLayer.Services;
 using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.Components.Web;
 
 namespace MeepleOS.Web.Components.Pages;
 
@@ -14,6 +15,7 @@ public partial class Manage
     private HashSet<int> selectedExpansionIds = [];
 
     private int editGameId;
+    private string editGameSearch = "";
     private string gameName = "";
     private int minPlayers = 2;
     private int? maxPlayers = 4;
@@ -21,6 +23,7 @@ public partial class Manage
 
     private int editExpansionId;
     private int expansionGameId;
+    private string expansionGameSearch = "";
     private string expansionName = "";
     private string expansionDescription = "";
 
@@ -29,6 +32,7 @@ public partial class Manage
 
     private int editSessionId;
     private int sessionGameId;
+    private string sessionGameSearch = "";
     private DateTime sessionDate = DateTime.Today;
     private string notes = "";
     private int addPlayerId;
@@ -37,11 +41,96 @@ public partial class Manage
     private string error = "";
     private string? deleteKind;
     private int deleteId;
+    private ElementReference cancelDeleteButton;
+    private bool focusDeleteDialog;
     private int openSection;
+
+    private string DeleteKindLabel => deleteKind switch
+    {
+        "game" => "Bordspel",
+        "expansion" => "Uitbreiding",
+        "player" => "Speler",
+        "session" => "Potje",
+        _ => "Item"
+    };
+
+    private string DeleteItemName => deleteKind switch
+    {
+        "game" => games.FirstOrDefault(game => game.Id == deleteId)?.Name ?? $"bordspel #{deleteId}",
+        "expansion" => expansions.FirstOrDefault(expansion => expansion.Id == deleteId)?.Name ?? $"uitbreiding #{deleteId}",
+        "player" => players.FirstOrDefault(player => player.Id == deleteId)?.Name ?? $"speler #{deleteId}",
+        "session" => sessions.FirstOrDefault(session => session.Id == deleteId) is { } session
+            ? $"{session.BoardGameName} van {session.PlayedAt:dd-MM-yyyy}"
+            : $"potje #{deleteId}",
+        _ => $"item #{deleteId}"
+    };
 
     private void OpenSection(int section) => openSection = openSection == section ? -1 : section;
 
+    private IEnumerable<BoardgameResult> MatchingGames(string searchTerm) =>
+        games.Where(game => game.Name.Contains(searchTerm.Trim(), StringComparison.OrdinalIgnoreCase)).Take(8);
+
+    private void SearchEditGame(ChangeEventArgs eventArgs)
+    {
+        editGameSearch = eventArgs.Value?.ToString() ?? "";
+        if (editGameId == 0)
+            return;
+
+        editGameId = 0;
+        LoadGame();
+    }
+
+    private void ChooseEditGame(int id)
+    {
+        var game = games.First(game => game.Id == id);
+        editGameId = id;
+        editGameSearch = game.Name;
+        LoadGame();
+    }
+
+    private void StartNewGame()
+    {
+        editGameSearch = "";
+        editGameId = 0;
+        LoadGame();
+    }
+
+    private void SearchExpansionGame(ChangeEventArgs eventArgs)
+    {
+        expansionGameSearch = eventArgs.Value?.ToString() ?? "";
+        expansionGameId = 0;
+    }
+
+    private void ChooseExpansionGame(int id)
+    {
+        expansionGameId = id;
+        expansionGameSearch = games.First(game => game.Id == id).Name;
+    }
+
+    private void SearchSessionGame(ChangeEventArgs eventArgs)
+    {
+        sessionGameSearch = eventArgs.Value?.ToString() ?? "";
+        if (sessionGameId != 0)
+            selectedExpansionIds.Clear();
+        sessionGameId = 0;
+    }
+
+    private void ChooseSessionGame(int id)
+    {
+        sessionGameId = id;
+        sessionGameSearch = games.First(game => game.Id == id).Name;
+    }
+
     protected override async Task OnInitializedAsync() => await Reload();
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!focusDeleteDialog)
+            return;
+
+        focusDeleteDialog = false;
+        await cancelDeleteButton.FocusAsync();
+    }
 
     private async Task Reload()
     {
@@ -54,15 +143,19 @@ public partial class Manage
 
         rows = rows.Where(row => players.Any(player => player.Id == row.Id)).ToList();
 
-        if (expansionGameId == 0 && games.Count > 0)
-            expansionGameId = games[0].Id;
     }
 
     private void LoadGame()
     {
         var game = games.FirstOrDefault(game => game.Id == editGameId);
         if (game is null)
+        {
+            gameName = "";
+            minPlayers = 2;
+            maxPlayers = 4;
+            duration = 45;
             return;
+        }
 
         gameName = game.Name;
         minPlayers = game.MinPlayers;
@@ -74,9 +167,16 @@ public partial class Manage
     {
         var expansion = expansions.FirstOrDefault(expansion => expansion.Id == editExpansionId);
         if (expansion is null)
+        {
+            expansionGameId = 0;
+            expansionGameSearch = "";
+            expansionName = "";
+            expansionDescription = "";
             return;
+        }
 
         expansionGameId = expansion.BoardGameId;
+        expansionGameSearch = games.FirstOrDefault(game => game.Id == expansionGameId)?.Name ?? "";
         expansionName = expansion.Name;
         expansionDescription = expansion.Description ?? "";
     }
@@ -91,6 +191,10 @@ public partial class Manage
         var session = sessions.FirstOrDefault(session => session.Id == editSessionId);
         if (session is null)
         {
+            sessionGameId = 0;
+            sessionGameSearch = "";
+            sessionDate = DateTime.Today;
+            notes = "";
             rows = [];
             selectedExpansionIds = [];
             addPlayerId = 0;
@@ -98,6 +202,7 @@ public partial class Manage
         }
 
         sessionGameId = session.BoardGameId;
+        sessionGameSearch = games.FirstOrDefault(game => game.Id == sessionGameId)?.Name ?? "";
         sessionDate = session.PlayedAt.ToDateTime(TimeOnly.MinValue);
         notes = session.Notes ?? "";
         selectedExpansionIds = session.Expansions.Select(expansion => expansion.Id).ToHashSet();
@@ -139,9 +244,19 @@ public partial class Manage
     {
         deleteKind = kind;
         deleteId = id;
+        focusDeleteDialog = true;
         error = "";
     }
-    private async Task Run(Func<Task> action)
+
+    private void CancelDelete() => deleteKind = null;
+
+    private void HandleDeleteDialogKeyDown(KeyboardEventArgs eventArgs)
+    {
+        if (eventArgs.Key == "Escape")
+            CancelDelete();
+    }
+
+    private async Task Run(Func<Task> action, string successMessage = "Opgeslagen.")
     {
         error = "";
         message = "";
@@ -149,7 +264,7 @@ public partial class Manage
         {
             await action();
             await Reload();
-            message = "Opgeslagen.";
+            message = successMessage;
         }
         catch (Exception exception)
         {
@@ -236,22 +351,25 @@ public partial class Manage
             {
                 case "game":
                     await GameService.DeleteAsync(deleteId);
-                    editGameId = 0;
+                    StartNewGame();
                     break;
                 case "expansion":
                     await ExpansionService.DeleteAsync(deleteId);
                     editExpansionId = 0;
+                    LoadExpansion();
                     break;
                 case "player":
                     await PlayerService.DeleteAsync(deleteId);
                     editPlayerId = 0;
+                    LoadPlayer();
                     break;
                 case "session":
                     await SessionService.DeleteAsync(deleteId);
                     editSessionId = 0;
+                    LoadSession();
                     break;
             }
-        });
+        }, "Verwijderd.");
     }
 
     private sealed class ParticipantRow(int id, string name)

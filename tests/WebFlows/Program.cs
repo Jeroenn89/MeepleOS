@@ -18,6 +18,11 @@ try
     var stats = new StatisticsService(new GameSessionRepository(factory), playerRepository, new BoardgameRepository(factory));
     var game = await boardgames.AddAsync("Testspel", 2, 4, 45);
     var jeroen = await players.AddAsync("Jeroen"); var pallas = await players.AddAsync("Pallas");
+    var legacyPlayer = await playerRepository.AddOrGetAsync("ada", "ADA");
+    var lowercasePlayer = await players.AddAsync("bert");
+    Check(lowercasePlayer.Name == "Bert" && (await playerRepository.GetByIdAsync(lowercasePlayer.Id))?.Name == "Bert", "nieuwe spelersnaam met hoofdletter opgeslagen");
+    Check((await players.GetAllAsync()).Take(2).Select(player => player.Name).SequenceEqual(["ada", "Bert"]), "spelers alfabetisch ongeacht hoofdletters");
+    Check((await players.UpdateAsync(lowercasePlayer.Id, "bram")).Name == "Bram", "gewijzigde spelersnaam met hoofdletter opgeslagen");
     var expansion = await expansions.AddAsync(game.Id, "Testuitbreiding");
     var date = new DateOnly(2026, 11, 11);
     var session = await sessions.RecordAsync(game.Id, date, [new(jeroen.Id, 42, 1), new(pallas.Id, 30, 2)], [jeroen.Id], "Test", [expansion.Id]);
@@ -39,7 +44,7 @@ try
     await players.UpdateAsync(pallas.Id, "Roan");
     await boardgames.UpdateAsync(game.Id, JsonSerializer.SerializeToElement(new { estimatedMinutes = 50 }));
     Check((await boardgames.GetAllAsync()).Single().EstimatedMinutes == 50, "bordspel wijzigen");
-    await sessions.DeleteAsync(session.Id); await sessions.DeleteAsync(automatic.Id); await sessions.DeleteAsync(explicitWinner.Id); await expansions.DeleteAsync(expansion.Id); await players.DeleteAsync(pallas.Id); await boardgames.DeleteAsync(game.Id);
+    await sessions.DeleteAsync(session.Id); await sessions.DeleteAsync(automatic.Id); await sessions.DeleteAsync(explicitWinner.Id); await expansions.DeleteAsync(expansion.Id); await players.DeleteAsync(pallas.Id); await players.DeleteAsync(legacyPlayer.Id); await players.DeleteAsync(lowercasePlayer.Id); await boardgames.DeleteAsync(game.Id);
     Check((await sessions.GetAllAsync()).Count == 0, "verwijderen");
     Console.WriteLine("WebFlows: toevoegen, lezen, filteren, profielen, wijzigen en verwijderen geslaagd; alleen tijdelijke database.");
 }

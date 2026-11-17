@@ -40,7 +40,7 @@ public sealed class PlayerRepository(IDbContextFactory<MeepleDbContext> dbFactor
         await using var db = await dbFactory.CreateDbContextAsync();
         return await db.Players
             .AsNoTracking()
-            .OrderBy(x => x.Name)
+            .OrderBy(x => x.NormalizedName)
             .Select(x => new PlayerResult(x.Id, x.Name))
             .ToListAsync();
     }

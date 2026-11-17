@@ -112,6 +112,12 @@ else
     <div class="wheel-popup-backdrop" @onclick="CloseResultPopup">
         <div class="wheel-popup" role="dialog" aria-modal="true" aria-labelledby="wheel-popup-title"
              @onclick:stopPropagation="true" @onkeydown="OnPopupKeyDown">
+            <div class="wheel-popup-confetti" aria-hidden="true">
+                @foreach (var piece in confettiPieces)
+                {
+                    <span style="@($"left:{piece.Left}%;--drift:{piece.Drift}px;--delay:{piece.Delay}ms;--turn:{piece.Turn}deg;background:{piece.Color}")"></span>
+                }
+            </div>
             <button type="button" class="wheel-popup-close" aria-label="Sluit de uitslag" @ref="popupCloseButton" @onclick="CloseResultPopup">×</button>
             <span class="wheel-popup-eyebrow">Winnaar:</span>
             <h2 id="wheel-popup-title">@selectedGame.Name</h2>

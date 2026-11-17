@@ -3,9 +3,9 @@
 @inject GameExpansionService ExpansionService
 @inject PlayerService PlayerService
 @inject GameSessionService SessionService
-<PageTitle>Beheren · MeepleOS</PageTitle>
-<h1>Handmatige invoer</h1>
-<p class="intro">Werkt ook zonder Gemini. Wijzigingen gebruiken de bestaande validatie.</p>
+<PageTitle>Toevoegen en bewerken · MeepleOS</PageTitle>
+<h1>Toevoegen en bewerken</h1>
+<div class="manage-page">
 @if (!string.IsNullOrEmpty(message))
 {
     <p class="notice">@message</p>
@@ -14,21 +14,35 @@
 {
     <p class="error">@error</p>
 }
-<details class="card" open="@(openSection == 0)">
-    <summary @onclick="() => OpenSection(0)" @onclick:preventDefault="true">Bordspel toevoegen of wijzigen</summary>
-    <div class="form-grid">
+<details class="card manage-section" open="@(openSection == 0)">
+    <summary @onclick="() => OpenSection(0)" @onclick:preventDefault="true"><span class="manage-section-number">01</span><span class="manage-summary-text"><strong>Bordspel</strong><small>Naam, spelersaantal en speelduur</small></span></summary>
+    <div class="manage-existing">
+        <div class="manage-block-heading"><h2>Nieuw of bestaand</h2><p>Typ een naam en kies een bestaand bordspel uit de suggesties.</p></div>
+        <div class="manage-select-row">
         <label>
             Bestaand bordspel
-            <select @bind="editGameId">
-                <option value="0">Nieuw bordspel</option>
-                @foreach (var g in games)
-                {
-                    <option value="@g.Id">@g.Name</option>
-                }
-            </select>
+            <input type="search" value="@editGameSearch" @oninput="SearchEditGame" placeholder="Typ de naam van een bordspel" autocomplete="off" />
         </label>
-        <button class="secondary" @onclick="LoadGame">Gegevens laden</button>
-        <label>
+        @if (!string.IsNullOrWhiteSpace(editGameSearch) && editGameId == 0)
+        {
+            <div class="manage-game-results" aria-label="Gevonden bordspellen">
+                @foreach (var game in MatchingGames(editGameSearch))
+                {
+                    <button type="button" @onclick="() => ChooseEditGame(game.Id)">@game.Name</button>
+                }
+                @if (!MatchingGames(editGameSearch).Any())
+                {
+                    <span>Geen bordspellen gevonden.</span>
+                }
+            </div>
+        }
+        <button type="button" class="secondary manage-new-button" @onclick="StartNewGame">Nieuw bordspel toevoegen</button>
+        </div>
+    </div>
+    <div class="manage-fields">
+        <div class="manage-block-heading"><h2>Spelgegevens</h2></div>
+        <div class="manage-field-grid">
+        <label class="manage-field-wide">
             Naam
             <input @bind="gameName" />
         </label>
@@ -44,21 +58,24 @@
             Speelduur in minuten
             <input type="number" min="1" @bind="duration" />
         </label>
+        </div>
     </div>
-    <div class="actions">
-        <button @onclick="SaveGame">Opslaan</button>
+    <div class="manage-actions">
+        <button @onclick="SaveGame">Bordspel opslaan</button>
         @if (editGameId>0)
         {
-            <button class="danger" @onclick="ConfirmDeleteGame">Verwijderen</button>
+            <button class="danger" @onclick="ConfirmDeleteGame">Bordspel verwijderen</button>
         }
     </div>
 </details>
-<details class="card" open="@(openSection == 1)">
-    <summary @onclick="() => OpenSection(1)" @onclick:preventDefault="true">Uitbreiding toevoegen of wijzigen</summary>
-    <div class="form-grid">
+<details class="card manage-section" open="@(openSection == 1)">
+    <summary @onclick="() => OpenSection(1)" @onclick:preventDefault="true"><span class="manage-section-number">02</span><span class="manage-summary-text"><strong>Uitbreiding</strong><small>Koppel een uitbreiding aan een bordspel</small></span></summary>
+    <div class="manage-existing">
+        <div class="manage-block-heading"><h2>Nieuw of bestaand</h2><p>Selecteer een bestaande uitbreiding om de velden in te vullen.</p></div>
+        <div class="manage-select-row">
         <label>
             Bestaande uitbreiding
-            <select @bind="editExpansionId">
+            <select @bind="editExpansionId" @bind:after="LoadExpansion">
                 <option value="0">Nieuwe uitbreiding</option>
                 @foreach (var e in expansions)
                 {
@@ -66,39 +83,54 @@
                 }
             </select>
         </label>
-        <button class="secondary" @onclick="LoadExpansion">Gegevens laden</button>
-        <label>
+        </div>
+    </div>
+    <div class="manage-fields">
+        <div class="manage-block-heading"><h2>Uitbreidingsgegevens</h2></div>
+        <div class="manage-field-grid">
+        <label class="manage-field-wide">
             Bordspel
-            <select @bind="expansionGameId">
-                @foreach (var g in games)
-                {
-                    <option value="@g.Id">@g.Name</option>
-                }
-            </select>
+            <input type="search" value="@expansionGameSearch" @oninput="SearchExpansionGame" placeholder="Typ de naam van een bordspel" autocomplete="off" />
         </label>
+        @if (!string.IsNullOrWhiteSpace(expansionGameSearch) && expansionGameId == 0)
+        {
+            <div class="manage-game-results manage-field-wide" aria-label="Gevonden bordspellen">
+                @foreach (var game in MatchingGames(expansionGameSearch))
+                {
+                    <button type="button" @onclick="() => ChooseExpansionGame(game.Id)">@game.Name</button>
+                }
+                @if (!MatchingGames(expansionGameSearch).Any())
+                {
+                    <span>Geen bordspellen gevonden.</span>
+                }
+            </div>
+        }
         <label>
             Naam
             <input @bind="expansionName" />
         </label>
-        <label>
+        <label class="manage-field-wide">
             Beschrijving
             <input @bind="expansionDescription" />
         </label>
+        </div>
     </div>
-    <div class="actions">
-        <button @onclick="SaveExpansion">Opslaan</button>
+    <div class="manage-actions">
+        <button @onclick="SaveExpansion">Uitbreiding opslaan</button>
         @if (editExpansionId>0)
         {
-            <button class="danger" @onclick="ConfirmDeleteExpansion">Verwijderen</button>
+            <button class="danger" @onclick="ConfirmDeleteExpansion">Uitbreiding verwijderen</button>
         }
     </div>
 </details>
-<details class="card" open="@(openSection == 2)">
-    <summary @onclick="() => OpenSection(2)" @onclick:preventDefault="true">Speler toevoegen of wijzigen</summary>
-    <div class="form-grid">
+<details class="card manage-section" open="@(openSection == 2)">
+    <summary @onclick="() => OpenSection(2)" @onclick:preventDefault="true"><span class="manage-section-number">03</span><span class="manage-summary-text"><strong>Speler</strong><small>Voeg een speler toe of pas de naam aan</small></span></summary>
+    <div class="manage-existing">
+        <div class="manage-block-heading"><h2>Nieuw of bestaand</h2><p>Selecteer een bestaande speler om de naam in te vullen.</p></div>
+        <div class="manage-select-row">
         <label>
             Bestaande speler
-            <select @bind="editPlayerId">
+            <select @bind="editPlayerId" @bind:after="LoadPlayer">
                 <option value="0">Nieuwe speler</option>
                 @foreach (var p in players)
                 {
@@ -106,26 +138,33 @@
                 }
             </select>
         </label>
-        <button class="secondary" @onclick="LoadPlayer">Gegevens laden</button>
+        </div>
+    </div>
+    <div class="manage-fields">
+        <div class="manage-block-heading"><h2>Spelergegevens</h2></div>
+        <div class="manage-field-grid">
         <label>
             Naam
             <input @bind="playerName" />
         </label>
+        </div>
     </div>
-    <div class="actions">
-        <button @onclick="SavePlayer">Opslaan</button>
+    <div class="manage-actions">
+        <button @onclick="SavePlayer">Speler opslaan</button>
         @if (editPlayerId>0)
         {
-            <button class="danger" @onclick="ConfirmDeletePlayer">Verwijderen</button>
+            <button class="danger" @onclick="ConfirmDeletePlayer">Speler verwijderen</button>
         }
     </div>
 </details>
-<details class="card" open="@(openSection == 3)">
-    <summary @onclick="() => OpenSection(3)" @onclick:preventDefault="true">Potje toevoegen of wijzigen</summary>
-    <div class="form-grid">
+<details class="card manage-section" open="@(openSection == 3)">
+    <summary @onclick="() => OpenSection(3)" @onclick:preventDefault="true"><span class="manage-section-number">04</span><span class="manage-summary-text"><strong>Potje</strong><small>Datum, deelnemers en uitslag</small></span></summary>
+    <div class="manage-existing">
+        <div class="manage-block-heading"><h2>Nieuw of bestaand</h2><p>Selecteer een bestaand potje om de velden in te vullen.</p></div>
+        <div class="manage-select-row">
         <label>
             Bestaand potje
-            <select @bind="editSessionId">
+            <select @bind="editSessionId" @bind:after="LoadSession">
                 <option value="0">Nieuw potje</option>
                 @foreach (var s in sessions)
                 {
@@ -133,28 +172,40 @@
                 }
             </select>
         </label>
-        <button class="secondary" @onclick="LoadSession">Gegevens laden</button>
-        <label>
+        </div>
+    </div>
+    <div class="manage-fields">
+        <div class="manage-block-heading"><h2>Potjegegevens</h2></div>
+        <div class="manage-field-grid">
+        <label class="manage-field-wide">
             Bordspel
-            <select @bind="sessionGameId">
-                <option value="0">Kies een bordspel</option>
-                @foreach (var g in games)
-                {
-                    <option value="@g.Id">@g.Name</option>
-                }
-            </select>
+            <input type="search" value="@sessionGameSearch" @oninput="SearchSessionGame" placeholder="Typ de naam van een bordspel" autocomplete="off" />
         </label>
+        @if (!string.IsNullOrWhiteSpace(sessionGameSearch) && sessionGameId == 0)
+        {
+            <div class="manage-game-results manage-field-wide" aria-label="Gevonden bordspellen">
+                @foreach (var game in MatchingGames(sessionGameSearch))
+                {
+                    <button type="button" @onclick="() => ChooseSessionGame(game.Id)">@game.Name</button>
+                }
+                @if (!MatchingGames(sessionGameSearch).Any())
+                {
+                    <span>Geen bordspellen gevonden.</span>
+                }
+            </div>
+        }
         <label>
             Speeldatum
             <input type="date" @bind="sessionDate" />
         </label>
-        <label>
+        <label class="manage-field-wide">
             Opmerkingen
             <textarea @bind="notes"></textarea>
         </label>
+        </div>
     </div>
-    <h3>Deelnemers, winnaar(s) en scores</h3>
-    <p>Selecteer minstens één deelnemer en één winnaar.</p>
+    <div class="manage-fields">
+    <div class="manage-block-heading"><h2>Deelnemers en uitslag</h2><p>Selecteer minstens één deelnemer en één winnaar. Scores en posities zijn optioneel.</p></div>
     <div class="participant-picker">
         <label>
             Bestaande speler
@@ -192,7 +243,9 @@
             </div>
         }
     </div>
-    <h3>Uitbreidingen</h3>
+    </div>
+    <div class="manage-fields">
+    <div class="manage-block-heading"><h2>Gespeelde uitbreidingen</h2><p>Vink aan welke uitbreidingen bij dit potje zijn gebruikt.</p></div>
     <div class="choice-grid">
         @foreach (var e in expansions.Where(e => e.BoardGameId == sessionGameId))
         {
@@ -203,7 +256,8 @@
             </label>
         }
     </div>
-    <div class="actions">
+    </div>
+    <div class="manage-actions">
         <button @onclick="SaveSession">Potje opslaan</button>
         @if (editSessionId > 0)
         {
@@ -213,9 +267,16 @@
 </details>
 @if (deleteKind is not null)
 {
-    <div class="confirm card" role="alertdialog" aria-label="Verwijderen bevestigen">
-        <p>Definitief verwijderen: @deleteKind #@deleteId?</p>
-        <button class="danger" @onclick="Delete">Ja, definitief verwijderen</button>
-        <button class="secondary" @onclick="() => deleteKind = null">Annuleren</button>
+    <div class="manage-dialog-backdrop" @onclick="CancelDelete">
+        <div class="manage-delete-dialog" role="alertdialog" aria-modal="true" aria-labelledby="manage-delete-title" aria-describedby="manage-delete-description" @onclick:stopPropagation="true" @onkeydown="HandleDeleteDialogKeyDown">
+            <span class="manage-dialog-eyebrow">Bevestiging</span>
+            <h2 id="manage-delete-title">@DeleteKindLabel verwijderen?</h2>
+            <p id="manage-delete-description">Weet je zeker dat je <strong>@DeleteItemName</strong> wilt verwijderen? Dit kun je niet ongedaan maken.</p>
+            <div class="manage-dialog-actions">
+                <button class="secondary" @onclick="CancelDelete" @ref="cancelDeleteButton">Annuleren</button>
+                <button class="danger" @onclick="Delete">Ja, verwijderen</button>
+            </div>
+        </div>
     </div>
 }
+</div>

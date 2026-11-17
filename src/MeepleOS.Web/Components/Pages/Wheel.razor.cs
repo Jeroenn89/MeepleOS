@@ -23,6 +23,8 @@ public partial class Wheel : IDisposable
     private int wheelVersion;
     private double rotationDegrees;
     private bool spinning;
+    private List<(int Left, int Drift, int Delay, int Turn, string Color)> confettiPieces = [];
+    private static readonly string[] PaperColors = ["#E9C98D", "#F3E6CB", "#B9875B", "#CF9B86", "#A9B9AE"];
     private readonly CancellationTokenSource spinCancellation = new();
 
     private List<BoardgameResult> EligibleGames => (games ?? [])
@@ -117,6 +119,11 @@ public partial class Wheel : IDisposable
 
             await Task.Delay(5100, spinCancellation.Token);
             selectedGame = wheelGames[index];
+            confettiPieces = Enumerable.Range(0, 28)
+                .Select(_ => (Left: Random.Shared.Next(5, 95), Drift: Random.Shared.Next(-85, 86),
+                    Delay: Random.Shared.Next(0, 650), Turn: Random.Shared.Next(-540, 541),
+                    Color: PaperColors[Random.Shared.Next(PaperColors.Length)]))
+                .ToList();
             spinning = false;
             showResultPopup = true;
             focusResultPopup = true;

@@ -1,36 +1,62 @@
 @page "/sessions/{Id:int}"
 @inject GameSessionService Sessions
-<PageTitle>Potje · MeepleOS</PageTitle>
+<PageTitle>@(session?.BoardGameName ?? "Potje") · MeepleOS</PageTitle>
 @if (session is null)
 {
-    <h1>Potje niet gevonden</h1>
+    <div class="profile-not-found card">
+        <h1>Potje niet gevonden</h1>
+        <a href="/sessions">Terug naar potjes →</a>
+    </div>
 }
 else
 {
-    <p>
-        <a href="/sessions">← Potjes</a>
-    </p>
-    <h1>@session.BoardGameName</h1>
-    <p class="intro">@session.PlayedAt.ToString("dd-MM-yyyy")</p>
-    <section class="card">
-        <h2>Deelnemers</h2>
-        @foreach (var p in session.Players)
-        {
-            <p>
-                <a href="/players/@p.PlayerId">@p.PlayerName</a>
-                @(p.IsWinner ? "🏆 winnaar" : "")
-                @(p.Score.HasValue ? $"· score {p.Score}" : "")
-                @(p.Position.HasValue ? $"· positie {p.Position}" : "")
-            </p>
-        }
-    </section>
-    <section class="card">
-        <h2>Uitbreidingen</h2>
-        <p>@(session.Expansions.Count == 0 ? "Geen" : string.Join(", ", session.Expansions.Select(x => x.Name)))</p>
-    </section>
-    <section class="card">
-        <h2>Opmerkingen</h2>
-        <p>@(session.Notes ?? "Geen opmerkingen")</p>
-    </section>
-    <a class="button secondary" href="/manage">Wijzigen of verwijderen</a>
+    <a class="profile-back" href="/sessions">← Alle potjes</a>
+    <header class="profile-hero session-detail-hero">
+        <div class="profile-hero-main">
+            <time class="session-detail-date" datetime="@session.PlayedAt.ToString("yyyy-MM-dd")">
+                <strong>@session.PlayedAt.ToString("dd")</strong>
+                <span>@session.PlayedAt.ToString("MM-yyyy")</span>
+            </time>
+            <div>
+                <span class="profile-eyebrow">Gespeeld potje</span>
+                <h1>@session.BoardGameName</h1>
+                <p>@session.Players.Count @(session.Players.Count == 1 ? "deelnemer" : "deelnemers") · @session.Players.Count(player => player.IsWinner) @(session.Players.Count(player => player.IsWinner) == 1 ? "winnaar" : "winnaars")</p>
+            </div>
+        </div>
+        <a class="button secondary" href="/manage">Wijzigen of verwijderen</a>
+    </header>
+
+    <div class="profile-grid session-detail-grid">
+        <section class="card profile-panel profile-panel-wide">
+            <h2>Deelnemers en uitslag</h2>
+            <div class="session-detail-players">
+                @foreach (var player in session.Players)
+                {
+                    <div class="session-detail-player">
+                        <a href="/players/@player.PlayerId">@player.PlayerName</a>
+                        @if (player.IsWinner)
+                        {
+                            <span class="profile-win-tag">Winnaar</span>
+                        }
+                        @if (player.Score.HasValue)
+                        {
+                            <span>Score: @player.Score</span>
+                        }
+                        @if (player.Position.HasValue)
+                        {
+                            <span>Positie: @player.Position</span>
+                        }
+                    </div>
+                }
+            </div>
+        </section>
+        <section class="card profile-panel">
+            <h2>Uitbreidingen</h2>
+            <p class="profile-muted">@(session.Expansions.Count == 0 ? "Geen uitbreidingen gebruikt." : string.Join(", ", session.Expansions.Select(expansion => expansion.Name)))</p>
+        </section>
+        <section class="card profile-panel">
+            <h2>Opmerkingen</h2>
+            <p class="profile-muted">@(string.IsNullOrWhiteSpace(session.Notes) ? "Geen opmerkingen." : session.Notes)</p>
+        </section>
+    </div>
 }

@@ -13,6 +13,7 @@ public sealed class PlayerService(IPlayerRepository players)
         if (name.Length is < 1 or > 200)
             throw new ArgumentException("De naam moet 1 tot 200 tekens bevatten.", nameof(name));
 
+        name = CapitalizeName(name);
         return await players.AddOrGetAsync(name, name.ToUpperInvariant());
     }
 
@@ -30,6 +31,7 @@ public sealed class PlayerService(IPlayerRepository players)
         if (name.Length is < 1 or > 200)
             throw new ArgumentException("De naam moet 1 tot 200 tekens bevatten.", nameof(name));
 
+        name = CapitalizeName(name);
         var normalizedName = name.ToUpperInvariant();
         if (await players.NameExistsAsync(normalizedName, id))
             throw new ArgumentException("Er bestaat al een speler met deze naam.", nameof(name));
@@ -51,4 +53,6 @@ public sealed class PlayerService(IPlayerRepository players)
 
         return await players.DeleteAsync(id);
     }
+
+    private static string CapitalizeName(string name) => name[..1].ToUpperInvariant() + name[1..];
 }

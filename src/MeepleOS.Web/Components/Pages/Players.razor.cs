@@ -51,12 +51,12 @@ public partial class Players
             return sortBy switch
             {
                 "wins" => matching.OrderByDescending(player => statsByPlayer[player.Id].Wins)
-                    .ThenBy(player => player.Name),
+                    .ThenBy(player => player.Name, StringComparer.OrdinalIgnoreCase),
                 "winPercentage" => matching.OrderByDescending(player => statsByPlayer[player.Id].WinPercentage)
                     .ThenByDescending(player => statsByPlayer[player.Id].Wins)
-                    .ThenBy(player => player.Name),
+                    .ThenBy(player => player.Name, StringComparer.OrdinalIgnoreCase),
                 "plays" => matching.OrderByDescending(player => statsByPlayer[player.Id].Plays)
-                    .ThenBy(player => player.Name),
+                    .ThenBy(player => player.Name, StringComparer.OrdinalIgnoreCase),
                 _ => matching
             };
         }
