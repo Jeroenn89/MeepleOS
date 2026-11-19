@@ -11,6 +11,10 @@ public partial class Players
     private Dictionary<int, int> winRanks = [];
     private string? search;
     private string sortBy = "none";
+    private string viewMode = "grid";
+
+    private void ShowGrid() => viewMode = "grid";
+    private void ShowNames() => viewMode = "names";
 
     protected override async Task OnInitializedAsync()
     {

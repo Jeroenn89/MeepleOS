@@ -18,13 +18,18 @@
         </select>
     </label>
 </div>
+<div class="collection-view-toolbar" role="group" aria-label="Weergave spelers">
+    <span>Weergave</span>
+    <button type="button" class="@(viewMode == "grid" ? "selected" : "")" aria-pressed="@(viewMode == "grid")" @onclick="ShowGrid">Met info</button>
+    <button type="button" class="@(viewMode == "names" ? "selected" : "")" aria-pressed="@(viewMode == "names")" @onclick="ShowNames">Namen</button>
+</div>
 @if (players is null)
 {
     <p>Laden…</p>
 }
 else
 {
-    <div class="game-collection-grid single-column-list">
+    <div class="game-collection-grid player-collection-grid collection-view-@viewMode @(viewMode == "grid" ? "single-column-list" : "")">
         @foreach (var player in VisiblePlayers)
         {
             var statistics = statsByPlayer[player.Id];

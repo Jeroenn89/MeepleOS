@@ -1,11 +1,16 @@
+@inject IJSRuntime JS
+
 <header class="site-head">
     <a class="brand" href="/">
         <img class="brand-logo" src="@Assets["meepleos-logo.png"]" alt="" width="36" height="44" />
         <span>MeepleOS</span>
     </a>
-    <details class="mobile-menu">
-        <summary>Menu</summary>
-        <nav aria-label="Mobiele hoofdnavigatie">
+    <div class="mobile-menu @(mobileMenuOpen ? "is-open" : "")">
+        <button type="button" class="mobile-menu-toggle" aria-label="Menu" aria-expanded="@mobileMenuOpen" @onclick="ToggleMobileMenu">
+            <svg class="mobile-menu-open-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" /></svg>
+            <svg class="mobile-menu-close-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 5l14 14M19 5 5 19" /></svg>
+        </button>
+        <nav aria-label="Mobiele hoofdnavigatie" inert="@(!mobileMenuOpen)" @onclick="CloseMobileMenu">
             <NavLink href="/" Match="NavLinkMatch.All">Dashboard</NavLink>
             <NavLink href="/games">Bordspellen</NavLink>
             <NavLink href="/wheel">Spelrad</NavLink>
@@ -15,7 +20,7 @@
             <NavLink href="/manage">Bewerken</NavLink>
             <NavLink href="/chat">Meeple Companion</NavLink>
         </nav>
-    </details>
+    </div>
     <nav class="desktop-menu" aria-label="Hoofdnavigatie">
         <NavLink href="/" Match="NavLinkMatch.All">Dashboard</NavLink>
         <NavLink href="/games">Bordspellen</NavLink>
@@ -27,3 +32,17 @@
         <NavLink class="chat-link" href="/chat">Meeple Companion</NavLink>
     </nav>
 </header>
+<div class="site-head-spacer" aria-hidden="true"></div>
+
+@code {
+    private bool mobileMenuOpen;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+            await JS.InvokeVoidAsync("meepleHeaderScroll.start");
+    }
+
+    private void ToggleMobileMenu() => mobileMenuOpen = !mobileMenuOpen;
+    private void CloseMobileMenu() => mobileMenuOpen = false;
+}

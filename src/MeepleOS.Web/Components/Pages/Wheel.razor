@@ -88,7 +88,7 @@ else
         <details class="wheel-legend">
             <summary>Volledige spelnamen bekijken</summary>
             <ol>
-                @for (var index = 0; index < wheelGames.Count; index++)
+                @foreach (var index in Enumerable.Range(0, wheelGames.Count).OrderBy(index => wheelGames[index].Name, StringComparer.CurrentCultureIgnoreCase))
                 {
                     <li><span class="wheel-legend-color" style="background:@SegmentColors[index % SegmentColors.Length]" aria-hidden="true"></span><span>@wheelGames[index].Name</span></li>
                 }

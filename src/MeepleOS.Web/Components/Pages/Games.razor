@@ -17,13 +17,18 @@
         <input type="number" min="1" @bind="minutes" placeholder="Maximale speeltijd" />
     </label>
 </div>
+<div class="collection-view-toolbar" role="group" aria-label="Weergave bordspellen">
+    <span>Weergave</span>
+    <button type="button" class="@(viewMode == "grid" ? "selected" : "")" aria-pressed="@(viewMode == "grid")" @onclick="ShowGrid">Met info</button>
+    <button type="button" class="@(viewMode == "names" ? "selected" : "")" aria-pressed="@(viewMode == "names")" @onclick="ShowNames">Namen</button>
+</div>
 @if (games is null)
 {
     <p>Laden…</p>
 }
 else
 {
-    <div class="game-collection-grid">
+    <div class="game-collection-grid collection-view-@viewMode">
         @foreach (var game in games.Where(MatchesFilters))
         {
             var playCount = playCounts.GetValueOrDefault(game.Id);

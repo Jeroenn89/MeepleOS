@@ -14,8 +14,9 @@
 {
     <p class="error">@error</p>
 }
-<details class="card manage-section" open="@(openSection == 0)">
-    <summary @onclick="() => OpenSection(0)" @onclick:preventDefault="true"><span class="manage-section-number">01</span><span class="manage-summary-text"><strong>Bordspel</strong><small>Naam, spelersaantal en speelduur</small></span></summary>
+<section class="card manage-section @(openSection == 0 ? "is-open" : "")">
+    <button type="button" class="manage-section-toggle" aria-expanded="@(openSection == 0)" @onclick="() => OpenSection(0)"><span class="manage-section-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8" cy="8" r=".8" fill="currentColor" stroke="none"/><circle cx="16" cy="8" r=".8" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r=".8" fill="currentColor" stroke="none"/><circle cx="8" cy="16" r=".8" fill="currentColor" stroke="none"/><circle cx="16" cy="16" r=".8" fill="currentColor" stroke="none"/></svg></span><span class="manage-summary-text"><strong>Bordspel</strong><small>Naam, spelersaantal en speelduur</small></span></button>
+    <div class="manage-section-content" inert="@(openSection != 0)"><div class="manage-section-content-inner">
     <div class="manage-existing">
         <div class="manage-block-heading"><h2>Nieuw of bestaand</h2><p>Typ een naam en kies een bestaand bordspel uit de suggesties.</p></div>
         <div class="manage-select-row">
@@ -67,9 +68,11 @@
             <button class="danger" @onclick="ConfirmDeleteGame">Bordspel verwijderen</button>
         }
     </div>
-</details>
-<details class="card manage-section" open="@(openSection == 1)">
-    <summary @onclick="() => OpenSection(1)" @onclick:preventDefault="true"><span class="manage-section-number">02</span><span class="manage-summary-text"><strong>Uitbreiding</strong><small>Koppel een uitbreiding aan een bordspel</small></span></summary>
+    </div></div>
+</section>
+<section class="card manage-section @(openSection == 1 ? "is-open" : "")">
+    <button type="button" class="manage-section-toggle" aria-expanded="@(openSection == 1)" @onclick="() => OpenSection(1)"><span class="manage-section-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h6c-.3 1.9.5 3 2 3s2.3-1.1 2-3h6v6c-1.9-.3-3 .5-3 2s1.1 2.3 3 2v6h-6c.3-1.9-.5-3-2-3s-2.3 1.1-2 3H4v-6c1.9.3 3-.5 3-2s-1.1-2.3-3-2V4Z"/></svg></span><span class="manage-summary-text"><strong>Uitbreiding</strong><small>Koppel een uitbreiding aan een bordspel</small></span></button>
+    <div class="manage-section-content" inert="@(openSection != 1)"><div class="manage-section-content-inner">
     <div class="manage-existing">
         <div class="manage-block-heading"><h2>Nieuw of bestaand</h2><p>Selecteer een bestaande uitbreiding om de velden in te vullen.</p></div>
         <div class="manage-select-row">
@@ -122,9 +125,11 @@
             <button class="danger" @onclick="ConfirmDeleteExpansion">Uitbreiding verwijderen</button>
         }
     </div>
-</details>
-<details class="card manage-section" open="@(openSection == 2)">
-    <summary @onclick="() => OpenSection(2)" @onclick:preventDefault="true"><span class="manage-section-number">03</span><span class="manage-summary-text"><strong>Speler</strong><small>Voeg een speler toe of pas de naam aan</small></span></summary>
+    </div></div>
+</section>
+<section class="card manage-section @(openSection == 2 ? "is-open" : "")">
+    <button type="button" class="manage-section-toggle" aria-expanded="@(openSection == 2)" @onclick="() => OpenSection(2)"><span class="manage-section-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.5"/><path d="M5 20v-1.5a7 7 0 0 1 14 0V20H5Z"/></svg></span><span class="manage-summary-text"><strong>Speler</strong><small>Voeg een speler toe of pas de naam aan</small></span></button>
+    <div class="manage-section-content" inert="@(openSection != 2)"><div class="manage-section-content-inner">
     <div class="manage-existing">
         <div class="manage-block-heading"><h2>Nieuw of bestaand</h2><p>Selecteer een bestaande speler om de naam in te vullen.</p></div>
         <div class="manage-select-row">
@@ -156,9 +161,11 @@
             <button class="danger" @onclick="ConfirmDeletePlayer">Speler verwijderen</button>
         }
     </div>
-</details>
-<details class="card manage-section" open="@(openSection == 3)">
-    <summary @onclick="() => OpenSection(3)" @onclick:preventDefault="true"><span class="manage-section-number">04</span><span class="manage-summary-text"><strong>Potje</strong><small>Datum, deelnemers en uitslag</small></span></summary>
+    </div></div>
+</section>
+<section class="card manage-section @(openSection == 3 ? "is-open" : "")">
+    <button type="button" class="manage-section-toggle" aria-expanded="@(openSection == 3)" @onclick="() => OpenSection(3)"><span class="manage-section-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 3v4m10-4v4M3 10h18m-13 5 2.5 2.5L16 13"/></svg></span><span class="manage-summary-text"><strong>Potje</strong><small>Datum, deelnemers en uitslag</small></span></button>
+    <div class="manage-section-content" inert="@(openSection != 3)"><div class="manage-section-content-inner">
     <div class="manage-existing">
         <div class="manage-block-heading"><h2>Nieuw of bestaand</h2><p>Selecteer een bestaand potje om de velden in te vullen.</p></div>
         <div class="manage-select-row">
@@ -264,7 +271,8 @@
             <button class="danger" @onclick="ConfirmDeleteSession">Potje verwijderen</button>
         }
     </div>
-</details>
+    </div></div>
+</section>
 @if (deleteKind is not null)
 {
     <div class="manage-dialog-backdrop" @onclick="CancelDelete">

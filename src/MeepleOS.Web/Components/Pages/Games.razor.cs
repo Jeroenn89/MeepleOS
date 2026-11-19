@@ -15,6 +15,10 @@ public partial class Games
     private string? search;
     private int? players;
     private int? minutes;
+    private string viewMode = "grid";
+
+    private void ShowGrid() => viewMode = "grid";
+    private void ShowNames() => viewMode = "names";
 
     protected override async Task OnInitializedAsync()
     {

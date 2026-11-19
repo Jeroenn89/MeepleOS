@@ -43,7 +43,7 @@ public partial class Manage
     private int deleteId;
     private ElementReference cancelDeleteButton;
     private bool focusDeleteDialog;
-    private int openSection;
+    private int openSection = -1;
 
     private string DeleteKindLabel => deleteKind switch
     {
