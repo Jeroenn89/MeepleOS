@@ -6,28 +6,32 @@ using Microsoft.EntityFrameworkCore;
 
 namespace MeepleOS.DataLayer.Repositories;
 
-public sealed class GameSessionRepository(IDbContextFactory<MeepleDbContext> dbFactory) : IGameSessionRepository
+public sealed class GameSessionRepository(IDbContextFactory<MeepleDbContext> dbFactory, IAccountContext account) : IGameSessionRepository
 {
     public async Task<bool> BoardgameExistsAsync(int boardGameId)
     {
+        var accountId = await account.GetAccountIdAsync();
         await using var db = await dbFactory.CreateDbContextAsync();
-        return await db.Boardgames.AnyAsync(x => x.Id == boardGameId);
+        return await db.AccountBoardgames.AnyAsync(x => x.AccountId == accountId && x.BoardGameId == boardGameId);
     }
 
     public async Task<HashSet<int>> GetExistingPlayerIdsAsync(IReadOnlyCollection<int> playerIds)
     {
+        var accountId = await account.GetAccountIdAsync();
         await using var db = await dbFactory.CreateDbContextAsync();
         var ids = playerIds.ToArray();
 
         return (await db.Players
-            .Where(x => ids.Contains(x.Id))
+            .Where(x => ids.Contains(x.Id) && db.AccountPlayers.Any(a => a.AccountId == accountId && a.PlayerId == x.Id))
             .Select(x => x.Id)
             .ToListAsync()).ToHashSet();
     }
 
     public async Task<HashSet<int>> GetExistingExpansionIdsAsync(int boardGameId, IReadOnlyCollection<int> expansionIds)
     {
+        var accountId = await account.GetAccountIdAsync();
         await using var db = await dbFactory.CreateDbContextAsync();
+        if (!await db.AccountBoardgames.AnyAsync(x => x.AccountId == accountId && x.BoardGameId == boardGameId)) return [];
         var ids = expansionIds.ToArray();
         return (await db.GameExpansions.Where(x => x.BoardGameId == boardGameId && ids.Contains(x.Id))
             .Select(x => x.Id).ToListAsync()).ToHashSet();
@@ -37,7 +41,13 @@ public sealed class GameSessionRepository(IDbContextFactory<MeepleDbContext> dbF
         IReadOnlyList<SessionPlayerInput> players, IReadOnlySet<int> winnerPlayerIds,
         IReadOnlyCollection<int> expansionIds)
     {
+        var accountId = await account.GetAccountIdAsync();
         await using var db = await dbFactory.CreateDbContextAsync();
+        if (!await db.AccountBoardgames.AnyAsync(x => x.AccountId == accountId && x.BoardGameId == boardGameId))
+            throw new UnauthorizedAccessException("Het bordspel is niet beschikbaar.");
+        var playerIds = players.Select(x => x.PlayerId).ToArray();
+        if (await db.AccountPlayers.CountAsync(x => x.AccountId == accountId && playerIds.Contains(x.PlayerId)) != playerIds.Length)
+            throw new UnauthorizedAccessException("Een of meer spelers zijn niet beschikbaar.");
         var expansionIdArray = expansionIds.ToArray();
         if (await db.GameExpansions.CountAsync(x => x.BoardGameId == boardGameId && expansionIdArray.Contains(x.Id))
             != expansionIdArray.Length)
@@ -47,6 +57,7 @@ public sealed class GameSessionRepository(IDbContextFactory<MeepleDbContext> dbF
             BoardGameId = boardGameId,
             PlayedAt = playedAt,
             Notes = notes,
+            CreatedByAccountId = accountId,
             Players = players.Select(x => new SessionPlayer
             {
                 PlayerId = x.PlayerId,
@@ -58,6 +69,18 @@ public sealed class GameSessionRepository(IDbContextFactory<MeepleDbContext> dbF
         };
 
         db.GameSessions.Add(session);
+        db.AccountGameSessions.Add(new AccountGameSession { AccountId = accountId, GameSession = session });
+        var linkedAccounts = await db.Players.Where(x => playerIds.Contains(x.Id) && x.AccountId != null)
+            .Select(x => x.AccountId!).Distinct().ToListAsync();
+        foreach (var linkedId in linkedAccounts.Where(x => x != accountId))
+        {
+            db.AccountGameSessions.Add(new AccountGameSession { AccountId = linkedId, GameSession = session });
+            if (!await db.AccountBoardgames.AnyAsync(x => x.AccountId == linkedId && x.BoardGameId == boardGameId))
+                db.AccountBoardgames.Add(new AccountBoardgame { AccountId = linkedId, BoardGameId = boardGameId });
+            foreach (var playerId in playerIds)
+                if (!await db.AccountPlayers.AnyAsync(x => x.AccountId == linkedId && x.PlayerId == playerId))
+                    db.AccountPlayers.Add(new AccountPlayer { AccountId = linkedId, PlayerId = playerId });
+        }
         await db.SaveChangesAsync();
 
         return await GetByIdAsync(db, session.Id);
@@ -66,8 +89,10 @@ public sealed class GameSessionRepository(IDbContextFactory<MeepleDbContext> dbF
     public async Task<List<GameSessionResult>> GetAllAsync(int? boardGameId, int? playerId,
         DateOnly? from, DateOnly? to)
     {
+        var accountId = await account.GetAccountIdAsync();
         await using var db = await dbFactory.CreateDbContextAsync();
-        IQueryable<GameSession> query = db.GameSessions.AsNoTracking();
+        IQueryable<GameSession> query = db.GameSessions.AsNoTracking().Where(x =>
+            db.AccountGameSessions.Any(a => a.AccountId == accountId && a.GameSessionId == x.Id));
 
         if (boardGameId.HasValue)
             query = query.Where(x => x.BoardGameId == boardGameId.Value);
@@ -96,10 +121,11 @@ public sealed class GameSessionRepository(IDbContextFactory<MeepleDbContext> dbF
 
     public async Task<GameSessionResult?> GetByIdAsync(int id)
     {
+        var accountId = await account.GetAccountIdAsync();
         await using var db = await dbFactory.CreateDbContextAsync();
         return await db.GameSessions
             .AsNoTracking()
-            .Where(x => x.Id == id)
+            .Where(x => x.Id == id && db.AccountGameSessions.Any(a => a.AccountId == accountId && a.GameSessionId == x.Id))
             .Select(x => new GameSessionResult(x.Id, x.BoardGameId, x.BoardGame.Name,
                 x.PlayedAt, x.Notes, x.Players.OrderBy(p => p.Id)
                     .Select(p => new SessionPlayerResult(p.Id, p.PlayerId, p.Player.Name,
@@ -114,19 +140,20 @@ public sealed class GameSessionRepository(IDbContextFactory<MeepleDbContext> dbF
         IReadOnlyList<SessionPlayerInput> players, IReadOnlySet<int> winnerPlayerIds,
         IReadOnlyCollection<int> expansionIds)
     {
+        var accountId = await account.GetAccountIdAsync();
         await using var db = await dbFactory.CreateDbContextAsync();
         await using var transaction = await db.Database.BeginTransactionAsync();
         var session = await db.GameSessions.Include(x => x.Players).Include(x => x.Expansions)
-            .SingleOrDefaultAsync(x => x.Id == id);
+            .SingleOrDefaultAsync(x => x.Id == id && x.CreatedByAccountId == accountId);
 
         if (session is null)
             return null;
 
-        if (!await db.Boardgames.AnyAsync(x => x.Id == boardGameId))
+        if (!await db.AccountBoardgames.AnyAsync(x => x.AccountId == accountId && x.BoardGameId == boardGameId))
             throw new ArgumentException("Het bordspel bestaat niet.", nameof(boardGameId));
 
         var ids = players.Select(x => x.PlayerId).ToArray();
-        if (await db.Players.CountAsync(x => ids.Contains(x.Id)) != ids.Length)
+        if (await db.AccountPlayers.CountAsync(x => x.AccountId == accountId && ids.Contains(x.PlayerId)) != ids.Length)
             throw new ArgumentException("Een of meer deelnemers bestaan niet.", nameof(players));
 
         var expansionIdArray = expansionIds.ToArray();
@@ -152,6 +179,20 @@ public sealed class GameSessionRepository(IDbContextFactory<MeepleDbContext> dbF
         {
             GameExpansionId = expansionId
         }).ToList();
+        var linkedAccountIds = (await db.Players.Where(x => ids.Contains(x.Id) && x.AccountId != null)
+            .Select(x => x.AccountId!).Distinct().ToListAsync()).Append(accountId).Distinct().ToHashSet();
+        var existingLinks = await db.AccountGameSessions.Where(x => x.GameSessionId == id).ToListAsync();
+        db.AccountGameSessions.RemoveRange(existingLinks.Where(x => !linkedAccountIds.Contains(x.AccountId)));
+        foreach (var linkedId in linkedAccountIds.Where(x => existingLinks.All(a => a.AccountId != x)))
+            db.AccountGameSessions.Add(new AccountGameSession { AccountId = linkedId, GameSessionId = id });
+        foreach (var linkedId in linkedAccountIds)
+        {
+            if (!await db.AccountBoardgames.AnyAsync(x => x.AccountId == linkedId && x.BoardGameId == boardGameId))
+                db.AccountBoardgames.Add(new AccountBoardgame { AccountId = linkedId, BoardGameId = boardGameId });
+            foreach (var playerId in ids)
+                if (!await db.AccountPlayers.AnyAsync(x => x.AccountId == linkedId && x.PlayerId == playerId))
+                    db.AccountPlayers.Add(new AccountPlayer { AccountId = linkedId, PlayerId = playerId });
+        }
         await db.SaveChangesAsync();
         await transaction.CommitAsync();
 
@@ -160,8 +201,9 @@ public sealed class GameSessionRepository(IDbContextFactory<MeepleDbContext> dbF
 
     public async Task<bool> DeleteAsync(int id)
     {
+        var accountId = await account.GetAccountIdAsync();
         await using var db = await dbFactory.CreateDbContextAsync();
-        var session = await db.GameSessions.FindAsync(id);
+        var session = await db.GameSessions.SingleOrDefaultAsync(x => x.Id == id && x.CreatedByAccountId == accountId);
 
         if (session is null)
             return false;

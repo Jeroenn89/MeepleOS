@@ -19,6 +19,9 @@
             <NavLink href="/statistics">Statistieken</NavLink>
             <NavLink href="/manage">Bewerken</NavLink>
             <NavLink href="/chat">Meeple Companion</NavLink>
+            <AuthorizeView Roles="Admin"><Authorized><a href="/accounts">Accounts</a></Authorized></AuthorizeView>
+            <a href="/change-password">Wachtwoord wijzigen</a>
+            <form method="post" action="/logout"><AntiforgeryToken /><button type="submit">Uitloggen</button></form>
         </nav>
     </div>
     <nav class="desktop-menu" aria-label="Hoofdnavigatie">
@@ -30,6 +33,14 @@
         <NavLink href="/statistics">Statistieken</NavLink>
         <NavLink href="/manage">Bewerken</NavLink>
         <NavLink class="chat-link" href="/chat">Meeple Companion</NavLink>
+        <details class="account-menu">
+            <summary>Account</summary>
+            <div class="account-menu-items">
+                <AuthorizeView Roles="Admin"><Authorized><a href="/accounts">Accounts</a></Authorized></AuthorizeView>
+                <a href="/change-password">Wachtwoord wijzigen</a>
+                <form method="post" action="/logout"><AntiforgeryToken /><button type="submit">Uitloggen</button></form>
+            </div>
+        </details>
     </nav>
 </header>
 <div class="site-head-spacer" aria-hidden="true"></div>

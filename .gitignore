@@ -14,6 +14,7 @@ TestResults/
 # Local SQLite data and journal files
 *.db
 *.db-*
+*.db.auth-keys/
 *.sqlite
 *.sqlite-*
 *.sqlite3

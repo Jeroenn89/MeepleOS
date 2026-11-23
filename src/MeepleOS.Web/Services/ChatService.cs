@@ -1,8 +1,11 @@
 using MeepleOS.AiClient;
+using MeepleOS.BusinessLayer.Services;
+using Microsoft.AspNetCore.DataProtection;
 
 namespace MeepleOS.Web.Services;
 
-public sealed class ChatService(WebOptions options, IHttpClientFactory httpFactory, ILogger<ChatService> logger)
+public sealed class ChatService(WebOptions options, IHttpClientFactory httpFactory, ILogger<ChatService> logger,
+    IAccountContext account, IDataProtectionProvider protection)
 {
     public ChatConversation Conversation { get; } = new();
 
@@ -34,7 +37,10 @@ public sealed class ChatService(WebOptions options, IHttpClientFactory httpFacto
         TavilyGameSearch? search = null;
         try
         {
-            await using var tools = await McpTools.ConnectAsync(options.Root, databasePath: options.DatabasePath);
+            var accountId = await account.GetAccountIdAsync();
+            var token = protection.CreateProtector("MeepleOS.McpAccount.v1")
+                .ToTimeLimitedDataProtector().Protect(accountId, TimeSpan.FromMinutes(10));
+            await using var tools = await McpTools.ConnectAsync(options.Root, databasePath: options.DatabasePath, authToken: token);
             using var http = httpFactory.CreateClient();
             http.Timeout = TimeSpan.FromSeconds(60);
             var ledger = new RequestLedger(Path.Combine(options.Root, "data", "gemini-requests.json"), 15, 500);

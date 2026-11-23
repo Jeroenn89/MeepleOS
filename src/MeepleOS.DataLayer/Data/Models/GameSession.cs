@@ -7,6 +7,8 @@ public sealed class GameSession
     public Boardgame BoardGame { get; set; } = null!;
     public DateOnly PlayedAt { get; set; }
     public string? Notes { get; set; }
+    public string? CreatedByAccountId { get; set; }
+    public MeepleUser? CreatedByAccount { get; set; }
     public List<SessionPlayer> Players { get; set; } = [];
     public List<GameSessionExpansion> Expansions { get; set; } = [];
 }

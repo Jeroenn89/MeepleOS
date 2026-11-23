@@ -8,6 +8,8 @@
   <ItemGroup>
     <PackageReference Include="ModelContextProtocol" Version="2.4.0" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.0" />
+    <PackageReference Include="Microsoft.AspNetCore.DataProtection" Version="10.0.14" />
+    <PackageReference Include="Microsoft.AspNetCore.DataProtection.Extensions" Version="10.0.14" />
     <ProjectReference Include="..\MeepleOS.BusinessLayer\MeepleOS.BusinessLayer.csproj" />
     <ProjectReference Include="..\MeepleOS.DataLayer\MeepleOS.DataLayer.csproj" />
   </ItemGroup>

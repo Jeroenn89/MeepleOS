@@ -1,8 +1,12 @@
-param([string]$Configuration = 'Debug')
+param([string]$Configuration = 'Debug', [string]$ServerDll)
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-$dll = Join-Path $root "src/MeepleOS.ServerLayer/bin/$Configuration/net10.0/MeepleOS.ServerLayer.dll"
+$dll = if ($ServerDll) { [IO.Path]::GetFullPath($ServerDll) } else {
+    Join-Path $root "src/MeepleOS.ServerLayer/bin/$Configuration/net10.0/MeepleOS.ServerLayer.dll"
+}
 $database = Join-Path ([IO.Path]::GetTempPath()) ("meepleos-smoke-{0}.db" -f [guid]::NewGuid())
+$token = dotnet run -c $Configuration --project (Join-Path $root 'tests/SmokeAuth/SmokeAuth.csproj') -- $database
+if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($token)) { throw 'Tijdelijk MCP-account kon niet worden aangemaakt.' }
 
 $start = [Diagnostics.ProcessStartInfo]::new('dotnet')
 $start.Arguments = '"' + $dll + '"'
@@ -12,6 +16,7 @@ $start.RedirectStandardInput = $true
 $start.RedirectStandardOutput = $true
 $start.RedirectStandardError = $true
 $start.Environment['MEEPLEOS_DB_PATH'] = $database
+$start.Environment['MEEPLEOS_AUTH_TOKEN'] = $token.Trim()
 $process = [Diagnostics.Process]::Start($start)
 
 function Invoke-Mcp($id, $method, $parameters) {
@@ -416,4 +421,10 @@ finally {
     if (-not $process.WaitForExit(3000)) { $process.Kill() }
     $process.Dispose()
     foreach ($suffix in @('', '-wal', '-shm')) { Remove-Item -LiteralPath "$database$suffix" -ErrorAction SilentlyContinue }
+    $keyDirectory = [IO.Path]::GetFullPath($database + '.auth-keys')
+    $temporaryRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\') + '\'
+    if (-not $keyDirectory.StartsWith($temporaryRoot, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Sleutelmap ligt buiten de tijdelijke map: $keyDirectory"
+    }
+    Remove-Item -LiteralPath $keyDirectory -Recurse -Force -ErrorAction SilentlyContinue
 }
