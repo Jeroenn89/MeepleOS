@@ -135,5 +135,7 @@ sealed class FakeTavily(bool throwError = false) : IGameSearch
 sealed class EmptyCatalogTools : IMeepleTools
 {
     public Task<JsonElement> CallAsync(string tool, object? arguments = null, CancellationToken ct = default)
-        => Task.FromResult(JsonSerializer.SerializeToElement(Array.Empty<object>()));
+        => Task.FromResult(JsonSerializer.SerializeToElement<object>(tool == "get_my_account"
+            ? new { username = "test", playerId = (int?)null, playerName = (string?)null }
+            : Array.Empty<object>()));
 }

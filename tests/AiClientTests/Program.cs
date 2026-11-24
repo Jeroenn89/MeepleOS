@@ -5,7 +5,7 @@ using MeepleOS.BusinessLayer.Services;
 if (args.Contains("--live-bommen", StringComparer.OrdinalIgnoreCase))
 {
     var liveRoot = Directory.GetCurrentDirectory();
-    var database = Path.Combine(liveRoot, ".tmp-ai-client-tests", $"live-bommen-{Guid.NewGuid():N}.db");
+    var database = Path.Combine(Path.GetTempPath(), $"meepleos-live-bommen-{Guid.NewGuid():N}.db");
     var ledgerPath = Path.ChangeExtension(database, ".json");
     Directory.CreateDirectory(Path.GetDirectoryName(database)!);
     try
@@ -61,6 +61,119 @@ if (args.Contains("--clarification-tests", StringComparer.OrdinalIgnoreCase))
 if (args.Contains("--read-tests", StringComparer.OrdinalIgnoreCase))
 {
     await RunReadTests();
+    return;
+}
+if (args.Contains("--account-tests", StringComparer.OrdinalIgnoreCase))
+{
+    var tools = new FakeTools { SelfPlayerName = "Bert" };
+    var plan = new Plan { Actions = [Session("Carcassonne", ["ik", "Pallas"], ["ik"])] };
+    var answer = await new CommandProcessor(tools, new SequencePlanner(plan))
+        .RunAsync("Ik speelde Carcassonne met Pallas; ik won.", new DateOnly(2026, 11, 11));
+    var record = tools.LastRecord;
+    if (!answer.Message.Contains("geregistreerd") || record is null
+        || !record.Value.GetProperty("players").EnumerateArray().Any(p => p.GetProperty("playerId").GetInt32() == 13)
+        || record.Value.GetProperty("players").EnumerateArray().Any(p => p.GetProperty("playerId").GetInt32() == 2)
+        || record.Value.GetProperty("winnerPlayerIds")[0].GetInt32() != 13)
+        throw new Exception($"'ik' werd niet als Bert verwerkt: {answer.Message}");
+    var mistakenTools = new FakeTools { SelfPlayerName = "Bert" };
+    var mistaken = await new CommandProcessor(mistakenTools, new SequencePlanner(new Plan
+        { Actions = [Session("Carcassonne", ["Jeroen", "Pallas"], ["Jeroen"])] }))
+        .RunAsync("Ik speelde Carcassonne met Pallas; ik won.", new DateOnly(2026, 11, 11));
+    if (mistakenTools.LastRecord is not null || !mistaken.Message.Contains("Jeroen"))
+        throw new Exception("Een onterecht door AI genoemde Jeroen werd opgeslagen.");
+    var collectionTools = new FakeTools { CarcassonneOwned = false };
+    var collectionAnswer = await new CommandProcessor(collectionTools, new SequencePlanner(new Plan
+        { Actions = [new ActionPlan { Kind = "add_to_collection", Name = "Carcassonne" }] }))
+        .RunAsync("Voeg Carcassonne toe aan mijn collectie.", new DateOnly(2026, 11, 11));
+    if (!collectionTools.Calls.Contains("add_boardgame_to_collection") || collectionTools.Calls.Contains("add_boardgame")
+        || !collectionAnswer.Message.Contains("aan je collectie toegevoegd"))
+        throw new Exception("MeepleCompanion voegde een gespeeld spel niet aan de collectie toe.");
+    var catalogTools = new FakeTools { CatalogBoardgameName = "Azul" };
+    var internet = new FakeGameSearch();
+    var catalogAnswer = await new CommandProcessor(catalogTools, new SequencePlanner(new Plan
+        { Actions = [new ActionPlan { Kind = "add_boardgame", Name = "Azul" }] }), gameSearch: internet)
+        .RunAsync("Voeg Azul toe aan mijn collectie.", new DateOnly(2026, 11, 11));
+    if (!catalogTools.Calls.Contains("find_boardgame_in_catalog")
+        || !catalogTools.Calls.Contains("add_existing_boardgame_to_collection")
+        || catalogTools.Calls.Contains("add_boardgame") || internet.Calls != 0
+        || !catalogAnswer.Message.Contains("Azul aan je collectie toegevoegd"))
+        throw new Exception($"Gedeelde catalogus werd niet vóór internet gebruikt: {catalogAnswer.Message}");
+    var absentTools = new FakeTools();
+    var fallbackSearch = new FakeGameSearch();
+    await new CommandProcessor(absentTools, new SequencePlanner(new Plan
+        { Actions = [new ActionPlan { Kind = "add_boardgame", Name = "Onbekend" }] }), gameSearch: fallbackSearch)
+        .RunAsync("Voeg Onbekend toe aan mijn collectie.", new DateOnly(2026, 11, 11));
+    if (!absentTools.Calls.Contains("find_boardgame_in_catalog") || fallbackSearch.Calls != 1)
+        throw new Exception("Een onbekende catalogustitel kreeg geen online terugval.");
+    Console.WriteLine("Accountidentiteit: Bert registreert zichzelf als deelnemer en winnaar.");
+    return;
+}
+if (args.Contains("--product-page-tests", StringComparer.OrdinalIgnoreCase))
+{
+    foreach (var example in new[]
+    {
+        (Name: "Gekraakt!", Url: "https://www.999games.nl/product/gekraakt/8721184285800",
+            Snippet: "In dit spel probeert 1 speler de perfecte kraak te plannen.",
+            Page: "# Gekraakt! - Bordspel\n2 - 5\u00a0spelers\n+/- 60\u00a0min\n## Over het spel\nMet variabele spelregels voor 2 tot 6 spelers.",
+            Min: 2, Max: 5, Minutes: 60),
+        (Name: "Cabanga", Url: "https://publisher.example/cabanga",
+            Snippet: "Een kaartspel met slimme combinaties.",
+            Page: "# Cabanga\nPlayers: 3-6\nPlaying time: 20 minutes\nOne player chooses a card each turn.",
+            Min: 3, Max: 6, Minutes: 20)
+    })
+    {
+        using var handler = new ProductPageHandler(example.Name, example.Url, example.Snippet, example.Page);
+        using var http = new HttpClient(handler);
+        var tools = new FakeTools();
+        var planner = new SequencePlanner(new Plan
+            { Actions = [new ActionPlan { Kind = "add_boardgame", Name = example.Name }] });
+        var result = await new CommandProcessor(tools, planner, gameSearch: new TavilyGameSearch(http, "mock-key"))
+            .RunAsync($"Voeg {example.Name} toe aan mijn collectie", new DateOnly(2026, 11, 24));
+        var saved = tools.LastBoardgame;
+        if (saved is null || saved.Value.GetProperty("minPlayers").GetInt32() != example.Min
+            || saved.Value.GetProperty("maxPlayers").GetInt32() != example.Max
+            || saved.Value.GetProperty("estimatedMinutes").GetInt32() != example.Minutes
+            || handler.SearchCalls != 1 || handler.ExtractCalls != 1 || planner.RequestCount != 1
+            || !result.Message.Contains(example.Url))
+            throw new Exception($"Productpagina voor {example.Name} gaf geen betrouwbare spelgegevens: {result.Message}");
+    }
+    var longPage = "Players: 2-4. " + new string('x', 1200) + " Relevante paginainhoud na het oude fragment.";
+    var contextPlanner = new SequencePlanner(
+        new Plan { Actions = [new ActionPlan { Kind = "add_boardgame", Name = "Testspel" }] },
+        new Plan { Actions = [new ActionPlan { Kind = "add_boardgame", Name = "Testspel" }] });
+    await new CommandProcessor(new FakeTools(), contextPlanner,
+        gameSearch: new FakeGameSearch(new GameSearchHit("Testspel | Publisher", "https://publisher.example/testspel", longPage)))
+        .RunAsync("Voeg Testspel toe aan mijn collectie", new DateOnly(2026, 11, 24));
+    if (contextPlanner.Commands.Count != 2 || !contextPlanner.Commands[1].Contains("Relevante paginainhoud na het oude fragment"))
+        throw new Exception("Gemini kreeg nog uitsluitend de eerste 900 tekens van een bronpagina.");
+    Console.WriteLine("Productpagina's: Gekraakt! en Cabanga verwerkt met één zoekactie en één pagina-extractie.");
+    return;
+}
+if (args.Contains("--live-product-page", StringComparer.OrdinalIgnoreCase))
+{
+    using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+    var search = new TavilyGameSearch(http, Environment.GetEnvironmentVariable("TAVILY_API_KEY") ?? "");
+    var hits = await search.SearchAsync("Gekraakt!", ["minimumaantal spelers", "maximumaantal spelers", "speelduur"]);
+    var official = hits.SingleOrDefault(hit => hit.Url == "https://www.999games.nl/product/gekraakt/8721184285800");
+    if (official?.ProductFacts != "Spelers: 2-5. Speelduur: 60 minuten." || search.RequestCount != 2)
+        throw new Exception($"Live productpagina gaf geen complete specificaties; Tavily-verzoeken: {search.RequestCount}.");
+    Console.WriteLine("Live Tavily: Gekraakt! heeft 2-5 spelers en 60 minuten; één zoekactie, één extractie.");
+    return;
+}
+if (args.Contains("--live-product-flow", StringComparer.OrdinalIgnoreCase))
+{
+    using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
+    var tools = new FakeTools();
+    var planner = new GeminiPlanner(http, Environment.GetEnvironmentVariable("GEMINI_API_KEY") ?? "");
+    var search = new TavilyGameSearch(http, Environment.GetEnvironmentVariable("TAVILY_API_KEY") ?? "");
+    var result = await new CommandProcessor(tools, planner, gameSearch: search)
+        .RunAsync("Voeg Gekraakt! toe aan mijn collectie", new DateOnly(2026, 11, 24));
+    var saved = tools.LastBoardgame;
+    if (saved is null || saved.Value.GetProperty("minPlayers").GetInt32() != 2
+        || saved.Value.GetProperty("maxPlayers").GetInt32() != 5
+        || saved.Value.GetProperty("estimatedMinutes").GetInt32() != 60)
+        throw new Exception($"Live Gemini/Tavily-proef voegde Gekraakt! niet toe: {result.Message}");
+    Console.WriteLine($"Live Gemini/Tavily: Gekraakt! 2-5 spelers, 60 minuten; {planner.RequestCount} Gemini- en {search.RequestCount} Tavily-verzoeken; geen database gewijzigd.");
     return;
 }
 if (args.Contains("--gemini-recovery-tests", StringComparer.OrdinalIgnoreCase))
@@ -771,8 +884,7 @@ foreach (var (typed, canonical, slug) in new[]
     passed++;
 }
 var root = Directory.GetCurrentDirectory();
-var testDirectory = Path.Combine(root, ".tmp-ai-client-tests");
-Directory.CreateDirectory(testDirectory);
+var testDirectory = Path.GetTempPath();
 var testDb = Path.Combine(testDirectory, $"meepleos-aiclient-test-{Guid.NewGuid():N}.db");
 var oldDb = Environment.GetEnvironmentVariable("MEEPLEOS_DB_PATH");
 try
@@ -1566,8 +1678,7 @@ async Task RunSourceTests(bool includeMcp)
     if (includeMcp)
     {
         var root = Directory.GetCurrentDirectory();
-        var database = Path.Combine(root, ".tmp-ai-client-tests", $"source-selection-{Guid.NewGuid():N}.db");
-        Directory.CreateDirectory(Path.GetDirectoryName(database)!);
+        var database = Path.Combine(Path.GetTempPath(), $"meepleos-source-selection-{Guid.NewGuid():N}.db");
         try
         {
             await using var mcp = await McpTools.ConnectAsync(root, databasePath: database);
@@ -1606,8 +1717,7 @@ async Task RunSourceTests(bool includeMcp)
     if (includeMcp)
     {
         var root = Directory.GetCurrentDirectory();
-        var database = Path.Combine(root, ".tmp-ai-client-tests", $"bommen-{Guid.NewGuid():N}.db");
-        Directory.CreateDirectory(Path.GetDirectoryName(database)!);
+        var database = Path.Combine(Path.GetTempPath(), $"meepleos-bommen-{Guid.NewGuid():N}.db");
         try
         {
             await using var mcp = await McpTools.ConnectAsync(root, databasePath: database);
@@ -1822,6 +1932,7 @@ sealed class ReadTestTools(bool tieAtThird = false, bool distinguishTotals = fal
         var boardGameId = args.TryGetProperty("boardGameId", out var id) && id.ValueKind == JsonValueKind.Number ? id.GetInt32() : (int?)null;
         object value = tool switch
         {
+            "get_my_account" => new { username = "jeroen", playerId = 2, playerName = "Jeroen" },
             "get_boardgames" => new[] { new { id = 1, name = "Carcassonne" }, new { id = 10, name = "De Zoektocht naar El Dorado" }, new { id = 20, name = "Paku Paku" } }
                 .Concat(fullCollection ? Enumerable.Range(30, 12).Select(id => new { id, name = $"Testspel {id}" }) : []).ToArray(),
             "get_players" => new[] { new { id = 2, name = "Jeroen" }, new { id = 3, name = "Pallas" }, new { id = 6, name = "Roan" }, new { id = 11, name = "Wim" } },
@@ -1844,6 +1955,9 @@ sealed class ReadTestTools(bool tieAtThird = false, bool distinguishTotals = fal
 
 sealed class FakeTools : IMeepleTools
 {
+    public string SelfPlayerName { get; set; } = "Jeroen";
+    public bool CarcassonneOwned { get; set; } = true;
+    public string? CatalogBoardgameName { get; set; }
     public List<string> Calls { get; } = [];
     public JsonElement? LastRecord { get; private set; }
     public JsonElement? LastBoardgame { get; private set; }
@@ -1859,17 +1973,23 @@ sealed class FakeTools : IMeepleTools
         var args = arguments is null ? JsonDocument.Parse("{}").RootElement : JsonSerializer.SerializeToElement(arguments);
         object response = tool switch
         {
+            "get_my_account" => new { username = SelfPlayerName.ToLowerInvariant(), playerId = SelfPlayerName == "Bert" ? 13 : 2, playerName = SelfPlayerName },
+            "find_boardgame_in_catalog" => CatalogBoardgameName is not null
+                && string.Equals(args.GetProperty("name").GetString(), CatalogBoardgameName, StringComparison.OrdinalIgnoreCase)
+                    ? new { id = 25, name = CatalogBoardgameName, minPlayers = 2, maxPlayers = (int?)4, estimatedMinutes = 30 }
+                    : null!,
             "get_boardgames" => (IncludeElDorado
-                ? new[] { new { id = 1, name = "Carcassonne" }, new { id = 8, name = "Munchkin" }, new { id = 10, name = "De Zoektocht naar El Dorado" } }
-                : new[] { new { id = 1, name = "Carcassonne" }, new { id = 8, name = "Munchkin" } })
-                .Concat(ExtraBoardgames.Select(game => new { id = game.Id, name = game.Name })).ToArray(),
-            "get_players" => new[] { new { id = 2, name = "Jeroen" }, new { id = 3, name = "Pallas" }, new { id = 6, name = "Roan" }, new { id = 11, name = "Wim" }, new { id = 12, name = "Nick" } },
+                ? new[] { new { id = 1, name = "Carcassonne", isOwned = CarcassonneOwned }, new { id = 8, name = "Munchkin", isOwned = true }, new { id = 10, name = "De Zoektocht naar El Dorado", isOwned = true } }
+                : new[] { new { id = 1, name = "Carcassonne", isOwned = CarcassonneOwned }, new { id = 8, name = "Munchkin", isOwned = true } })
+                .Concat(ExtraBoardgames.Select(game => new { id = game.Id, name = game.Name, isOwned = game.IsOwned })).ToArray(),
+            "get_players" => new[] { new { id = 2, name = "Jeroen" }, new { id = 3, name = "Pallas" }, new { id = 6, name = "Roan" }, new { id = 11, name = "Wim" }, new { id = 12, name = "Nick" }, new { id = 13, name = "Bert" } },
             "get_game_expansions" => new[] { new { id = 7, name = "De Rivier", boardGameId = 1 } },
             "get_game_sessions" => ExistingSession
                 ? new object[] { new { boardGameId = 1, playedAt = "2026-11-11", players = new[] { new { playerId = 2 }, new { playerId = 3 } } } }
                 : Array.Empty<object>(),
             "add_player" => new { id = 4, name = args.GetProperty("name").GetString() },
             "add_boardgame" => new { id = 5, name = args.GetProperty("name").GetString() },
+            "add_existing_boardgame_to_collection" => new { id = 25, name = args.GetProperty("name").GetString() },
             "add_game_expansion" => new { id = 10, name = args.GetProperty("name").GetString() },
             "record_game_session" => new { id = 9 },
             _ => new { id = 10, name = "Uitbreiding" }
@@ -1974,6 +2094,9 @@ sealed class ScriptedTavilyHandler(Func<string, GameSearchHit[]> results) : Http
 
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
+        if (request.RequestUri?.AbsolutePath == "/extract")
+            return new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+                { Content = new StringContent("{\"results\":[]}") };
         using var body = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(cancellationToken));
         var query = body.RootElement.GetProperty("query").GetString()!;
         Queries.Add(query);
@@ -1982,6 +2105,30 @@ sealed class ScriptedTavilyHandler(Func<string, GameSearchHit[]> results) : Http
             title = hit.Title, url = hit.Url, content = hit.Content
         }) });
         return new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new StringContent(payload) };
+    }
+}
+
+sealed class ProductPageHandler(string name, string url, string snippet, string page) : HttpMessageHandler
+{
+    public int SearchCalls { get; private set; }
+    public int ExtractCalls { get; private set; }
+
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+    {
+        object payload;
+        if (request.RequestUri?.AbsolutePath == "/search")
+        {
+            SearchCalls++;
+            payload = new { results = new[] { new { title = name, url, content = snippet } } };
+        }
+        else if (request.RequestUri?.AbsolutePath == "/extract")
+        {
+            ExtractCalls++;
+            payload = new { results = new[] { new { url, raw_content = page } } };
+        }
+        else throw new Exception("Onverwacht Tavily-endpoint.");
+        return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+            { Content = new StringContent(JsonSerializer.Serialize(payload)) });
     }
 }
 

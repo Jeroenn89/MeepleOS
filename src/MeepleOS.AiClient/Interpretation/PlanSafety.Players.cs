@@ -6,12 +6,12 @@ namespace MeepleOS.AiClient;
 internal static partial class PlanSafety
 {
     private static void AddPlayer(string? name, string command, HashSet<string> players,
-        List<ActionPlan> prepared, bool participant = false)
+        List<ActionPlan> prepared, string? selfPlayerName, bool participant = false)
     {
-        name = CanonicalPlayer(name);
+        name = CanonicalPlayer(name, selfPlayerName);
         if (string.IsNullOrWhiteSpace(name))
             throw new ClarificationNeededException("Welke speler bedoel je?");
-        var expanded = ExpandKnownPlayers(name, players);
+        var expanded = ExpandKnownPlayers(name, players, selfPlayerName);
         if (expanded.Count > 1)
             return;
         if (players.Contains(name))
@@ -25,9 +25,9 @@ internal static partial class PlanSafety
         players.Add(name);
     }
 
-    private static List<string> ExpandKnownPlayers(string? rawName, HashSet<string> players)
+    private static List<string> ExpandKnownPlayers(string? rawName, HashSet<string> players, string? selfPlayerName)
     {
-        var name = CanonicalPlayer(rawName);
+        var name = CanonicalPlayer(rawName, selfPlayerName);
         if (players.Contains(name) || !name.Contains(' '))
             return [name];
 
@@ -82,12 +82,12 @@ internal static partial class PlanSafety
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
     }
 
-    private static string CanonicalPlayer(string? name)
+    private static string CanonicalPlayer(string? name, string? selfPlayerName)
     {
         var value = name?.Trim() ?? "";
         return value.Equals("ik", StringComparison.OrdinalIgnoreCase)
             || value.Equals("mij", StringComparison.OrdinalIgnoreCase)
             || value.Equals("mezelf", StringComparison.OrdinalIgnoreCase)
-            ? "Jeroen" : value;
+            ? selfPlayerName ?? throw new ClarificationNeededException("Aan dit account is nog geen speler gekoppeld. Welke speler bedoel je met 'ik'?") : value;
     }
 }

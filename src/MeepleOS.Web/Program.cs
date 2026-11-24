@@ -146,32 +146,85 @@ app.MapPost("/logout", async (HttpContext context, IAntiforgery antiforgery, Sig
     await signIn.SignOutAsync();
     return Results.Redirect("/login");
 }).RequireAuthorization();
-app.MapGet("/mcp-token", (HttpContext context, IDataProtectionProvider protection) =>
+app.MapGet("/mcp-token", async (HttpContext context, IDataProtectionProvider protection,
+    UserManager<MeepleUser> users) =>
 {
-    var accountId = context.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
-        ?? throw new UnauthorizedAccessException();
+    var user = await users.GetUserAsync(context.User) ?? throw new UnauthorizedAccessException();
     var token = protection.CreateProtector("MeepleOS.McpAccount.v1")
-        .ToTimeLimitedDataProtector().Protect(accountId, TimeSpan.FromMinutes(10));
+        .ToTimeLimitedDataProtector().Protect(new McpAuthPayload(user.Id, user.SecurityStamp!).Serialize(), TimeSpan.FromMinutes(10));
     context.Response.Headers.CacheControl = "no-store";
     return Results.Text(token);
 }).RequireAuthorization();
-app.MapGet("/accounts", async (HttpContext context, IAntiforgery antiforgery, MeepleDbContext db) =>
+app.MapGet("/accounts", async (HttpContext context, IAntiforgery antiforgery, MeepleDbContext db,
+    UserManager<MeepleUser> userManager) =>
 {
-    var adminId = context.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-    var players = await db.Players.Where(p => p.AccountId == null &&
-        db.AccountPlayers.Any(a => a.AccountId == adminId && a.PlayerId == p.Id))
+    const int pageSize = 20;
+    var search = context.Request.Query["q"].ToString().Trim();
+    if (search.Length > 200) search = search[..200];
+    var requestedPage = int.TryParse(context.Request.Query["page"], out var parsedPage) && parsedPage > 0 ? parsedPage : 1;
+    var accountQuery = db.Users.AsNoTracking();
+    if (search.Length > 0)
+        accountQuery = accountQuery.Where(u => u.UserName != null && u.UserName.Contains(search));
+    var accountCount = await accountQuery.CountAsync();
+    var pageCount = Math.Max(1, (int)Math.Ceiling(accountCount / (double)pageSize));
+    var page = Math.Min(requestedPage, pageCount);
+    var accounts = await accountQuery.OrderBy(u => u.UserName).ThenBy(u => u.Id)
+        .Skip((page - 1) * pageSize).Take(pageSize).ToListAsync();
+    var players = await db.Players.Where(p => p.AccountId == null)
         .OrderBy(p => p.Name).Select(p => new { p.Id, p.Name }).ToListAsync();
     var options = string.Join("", players.Select(p => $"<option value=\"{p.Id}\">{WebUtility.HtmlEncode(p.Name)}</option>"));
     var token = WebUtility.HtmlEncode(antiforgery.GetAndStoreTokens(context).RequestToken);
+    var accountIds = accounts.Select(u => u.Id).ToList();
+    var linked = await db.Players.Where(p => p.AccountId != null && accountIds.Contains(p.AccountId))
+        .Select(p => new { p.AccountId, p.Name }).ToDictionaryAsync(p => p.AccountId!);
+    var accountRows = new System.Text.StringBuilder();
+    foreach (var user in accounts)
+    {
+        var id = WebUtility.HtmlEncode(user.Id);
+        var name = WebUtility.HtmlEncode(user.UserName);
+        var playerName = linked.TryGetValue(user.Id, out var player) ? WebUtility.HtmlEncode(player.Name) : "Geen speler gekoppeld";
+        var role = await userManager.IsInRoleAsync(user, "Admin") ? "Beheerder" : "Gebruiker";
+        accountRows.Append($$"""
+            <article><details><summary><span class="account-summary-name">{{name}}</span><span class="account-summary-meta">{{role}} · Speler: {{playerName}}</span></summary><div class="account-actions">
+            <form method="post" action="/accounts/{{id}}/rename"><input type="hidden" name="__RequestVerificationToken" value="{{token}}">
+            <label>Gebruikersnaam wijzigen<input name="username" value="{{name}}" required></label><button type="submit">Naam opslaan</button></form>
+            <form method="post" action="/accounts/{{id}}/reset-password"><input type="hidden" name="__RequestVerificationToken" value="{{token}}">
+            <label>Nieuw tijdelijk wachtwoord<input name="password" type="password" autocomplete="new-password" minlength="12" required></label><button type="submit">Wachtwoord opnieuw instellen</button></form>
+            {{(player is null && players.Count > 0 ? $$"""
+                <form method="post" action="/accounts/{{id}}/link-player"><input type="hidden" name="__RequestVerificationToken" value="{{token}}">
+                <label>Speler koppelen<select name="playerId" required><option value="">Kies een speler</option>{{options}}</select></label>
+                <button type="submit">Speler koppelen</button></form>
+                """ : "")}}
+            </div></details></article>
+            """);
+    }
+    var searchValue = WebUtility.HtmlEncode(search);
+    string PageUrl(int target) => "/accounts?page=" + target + (search.Length > 0 ? "&q=" + Uri.EscapeDataString(search) : "");
+    var firstResult = accountCount == 0 ? 0 : (page - 1) * pageSize + 1;
+    var lastResult = Math.Min(page * pageSize, accountCount);
+    var pagination = pageCount > 1 ? $$"""
+        <nav class="account-pagination" aria-label="Accountpagina's">
+            {{(page > 1 ? $"<a href=\"{WebUtility.HtmlEncode(PageUrl(page - 1))}\">Vorige</a>" : "")}}
+            <span>Pagina {{page}} van {{pageCount}}</span>
+            {{(page < pageCount ? $"<a href=\"{WebUtility.HtmlEncode(PageUrl(page + 1))}\">Volgende</a>" : "")}}
+        </nav>
+        """ : "";
     var message = context.Request.Query.ContainsKey("created") ? "<p class=\"auth-message auth-success\" role=\"status\">Account aangemaakt.</p>" :
-        context.Request.Query.ContainsKey("error") ? "<p class=\"auth-message auth-error\" role=\"alert\">Account aanmaken mislukt. Controleer naam, wachtwoord en speler.</p>" : "";
-    return AuthPage.Render("Account toevoegen", "Maak een account aan voor een andere speler.", $$"""
+        context.Request.Query.ContainsKey("updated") ? "<p class=\"auth-message auth-success\" role=\"status\">Account bijgewerkt.</p>" :
+        context.Request.Query.ContainsKey("error") ? "<p class=\"auth-message auth-error\" role=\"alert\">Accountbewerking mislukt. Controleer de ingevoerde gegevens.</p>" : "";
+    return AuthPage.Render("Accounts", "Bekijk en beheer de accounts van MeepleOS.", $$"""
+        <details class="account-create"><summary>Nieuw account aanmaken</summary>
         <form method="post" action="/accounts"><input type="hidden" name="__RequestVerificationToken" value="{{token}}">
         <label>Gebruikersnaam<input name="username" required></label>
         <label>Tijdelijk wachtwoord<input name="password" type="password" required minlength="12"></label>
         <label>Bestaande speler (optioneel)<select name="playerId"><option value="">Geen koppeling</option>{{options}}</select></label>
-        <button type="submit">Account aanmaken</button></form>
-        """, message);
+        <button type="submit">Account aanmaken</button></form></details>
+        <div class="account-list"><h2>Bestaande accounts ({{accountCount}})</h2>
+        <form class="account-search" method="get" action="/accounts"><label for="account-query">Zoek op gebruikersnaam</label>
+        <div><input id="account-query" type="search" name="q" value="{{searchValue}}" placeholder="Gebruikersnaam"><button type="submit">Zoeken</button></div></form>
+        <p class="account-result-count">{{(accountCount == 0 ? "Geen accounts gevonden." : $"Accounts {firstResult}–{lastResult} van {accountCount}")}}</p>
+        {{accountRows}}{{pagination}}</div>
+        """, message, wide: true);
 }).RequireAuthorization("Admin");
 app.MapPost("/accounts", async (HttpContext context, IAntiforgery antiforgery, MeepleDbContext db,
     UserManager<MeepleUser> users) =>
@@ -181,12 +234,10 @@ app.MapPost("/accounts", async (HttpContext context, IAntiforgery antiforgery, M
     var name = form["username"].ToString().Trim();
     var password = form["password"].ToString();
     var playerText = form["playerId"].ToString();
-    var adminId = context.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
     int? playerId = null;
     if (!string.IsNullOrEmpty(playerText))
     {
-        if (!int.TryParse(playerText, out var parsed) || !await db.Players.AnyAsync(p => p.Id == parsed &&
-            p.AccountId == null && db.AccountPlayers.Any(a => a.AccountId == adminId && a.PlayerId == parsed)))
+        if (!int.TryParse(playerText, out var parsed) || !await db.Players.AnyAsync(p => p.Id == parsed && p.AccountId == null))
             return Results.Redirect("/accounts?error=1");
         playerId = parsed;
     }
@@ -201,12 +252,54 @@ app.MapPost("/accounts", async (HttpContext context, IAntiforgery antiforgery, M
         db.AccountPlayers.Add(new() { AccountId = user.Id, PlayerId = player.Id });
         await db.SaveChangesAsync();
         await db.Database.ExecuteSqlInterpolatedAsync($"INSERT OR IGNORE INTO AccountGameSessions (AccountId, GameSessionId) SELECT {user.Id}, GameSessionId FROM SessionPlayers WHERE PlayerId = {player.Id}");
-        await db.Database.ExecuteSqlInterpolatedAsync($"INSERT OR IGNORE INTO AccountBoardgames (AccountId, BoardGameId) SELECT {user.Id}, gs.BoardGameId FROM GameSessions gs JOIN SessionPlayers sp ON sp.GameSessionId = gs.Id WHERE sp.PlayerId = {player.Id}");
         await db.Database.ExecuteSqlInterpolatedAsync($"INSERT OR IGNORE INTO AccountPlayers (AccountId, PlayerId) SELECT {user.Id}, other.PlayerId FROM SessionPlayers own JOIN SessionPlayers other ON other.GameSessionId = own.GameSessionId WHERE own.PlayerId = {player.Id}");
     }
     await db.SaveChangesAsync();
     await transaction.CommitAsync();
     return Results.Redirect("/accounts?created=1");
+}).RequireAuthorization("Admin");
+app.MapPost("/accounts/{id}/rename", async (string id, HttpContext context, IAntiforgery antiforgery,
+    UserManager<MeepleUser> users) =>
+{
+    await antiforgery.ValidateRequestAsync(context);
+    var user = await users.FindByIdAsync(id);
+    if (user is null) return Results.NotFound();
+    var form = await context.Request.ReadFormAsync();
+    var name = form["username"].ToString().Trim();
+    if (name.Length is < 1 or > 200) return Results.Redirect("/accounts?error=1");
+    var result = await users.SetUserNameAsync(user, name);
+    return Results.Redirect(result.Succeeded ? "/accounts?updated=1" : "/accounts?error=1");
+}).RequireAuthorization("Admin");
+app.MapPost("/accounts/{id}/reset-password", async (string id, HttpContext context, IAntiforgery antiforgery,
+    UserManager<MeepleUser> users) =>
+{
+    await antiforgery.ValidateRequestAsync(context);
+    var user = await users.FindByIdAsync(id);
+    if (user is null) return Results.NotFound();
+    var form = await context.Request.ReadFormAsync();
+    var token = await users.GeneratePasswordResetTokenAsync(user);
+    var result = await users.ResetPasswordAsync(user, token, form["password"].ToString());
+    return Results.Redirect(result.Succeeded ? "/accounts?updated=1" : "/accounts?error=1");
+}).RequireAuthorization("Admin");
+app.MapPost("/accounts/{id}/link-player", async (string id, HttpContext context, IAntiforgery antiforgery,
+    MeepleDbContext db) =>
+{
+    await antiforgery.ValidateRequestAsync(context);
+    var form = await context.Request.ReadFormAsync();
+    if (!int.TryParse(form["playerId"], out var playerId)) return Results.Redirect("/accounts?error=1");
+    await using var transaction = await db.Database.BeginTransactionAsync();
+    if (!await db.Users.AnyAsync(u => u.Id == id) || await db.Players.AnyAsync(p => p.AccountId == id))
+        return Results.Redirect("/accounts?error=1");
+    var player = await db.Players.SingleOrDefaultAsync(p => p.Id == playerId && p.AccountId == null);
+    if (player is null) return Results.Redirect("/accounts?error=1");
+    player.AccountId = id;
+    if (!await db.AccountPlayers.AnyAsync(a => a.AccountId == id && a.PlayerId == playerId))
+        db.AccountPlayers.Add(new() { AccountId = id, PlayerId = playerId });
+    await db.SaveChangesAsync();
+    await db.Database.ExecuteSqlInterpolatedAsync($"INSERT OR IGNORE INTO AccountGameSessions (AccountId, GameSessionId) SELECT {id}, GameSessionId FROM SessionPlayers WHERE PlayerId = {playerId}");
+    await db.Database.ExecuteSqlInterpolatedAsync($"INSERT OR IGNORE INTO AccountPlayers (AccountId, PlayerId) SELECT {id}, other.PlayerId FROM SessionPlayers own JOIN SessionPlayers other ON other.GameSessionId = own.GameSessionId WHERE own.PlayerId = {playerId}");
+    await transaction.CommitAsync();
+    return Results.Redirect("/accounts?updated=1");
 }).RequireAuthorization("Admin");
 app.MapStaticAssets().AllowAnonymous();
 app.MapRazorComponents<App>().AddInteractiveServerRenderMode().RequireAuthorization();

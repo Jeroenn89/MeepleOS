@@ -3,7 +3,7 @@ using MeepleOS.BusinessLayer.Repositories;
 
 namespace MeepleOS.BusinessLayer.Services;
 
-public sealed record BoardgameResult(int Id, string Name, int MinPlayers, int? MaxPlayers, int EstimatedMinutes);
+public sealed record BoardgameResult(int Id, string Name, int MinPlayers, int? MaxPlayers, int EstimatedMinutes, bool IsOwned = true);
 
 public sealed class BoardgameService(IBoardgameRepository boardgames)
 {
@@ -24,6 +24,26 @@ public sealed class BoardgameService(IBoardgameRepository boardgames)
     }
 
     public Task<List<BoardgameResult>> GetAllAsync() => boardgames.GetAllAsync();
+
+    public Task<List<BoardgameResult>> GetCollectionAsync() => boardgames.GetCollectionAsync();
+
+    public Task<BoardgameResult?> FindInCatalogAsync(string name)
+        => string.IsNullOrWhiteSpace(name) ? Task.FromResult<BoardgameResult?>(null)
+            : boardgames.FindInCatalogAsync(name.Trim());
+
+    public async Task<BoardgameResult> AddExistingToCollectionAsync(string name)
+    {
+        var game = await FindInCatalogAsync(name)
+            ?? throw new ArgumentException("Dit bordspel staat niet in de algemene catalogus.", nameof(name));
+        return await boardgames.AddAsync(game.Name, game.MinPlayers, game.MaxPlayers, game.EstimatedMinutes);
+    }
+
+    public async Task<BoardgameResult> AddToCollectionAsync(int id)
+    {
+        if (id < 1) throw new ArgumentException("Geef een geldig bordspel-ID op.", nameof(id));
+        return await boardgames.AddToCollectionAsync(id)
+            ?? throw new ArgumentException("Het bordspel is niet beschikbaar voor dit account.", nameof(id));
+    }
 
     public async Task<BoardgameResult> UpdateAsync(int id, JsonElement changes)
     {

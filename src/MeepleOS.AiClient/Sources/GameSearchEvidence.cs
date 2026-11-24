@@ -78,7 +78,7 @@ internal static class GameSearchEvidence
         var values = new HashSet<int>();
         foreach (var hit in hits)
         {
-            var content = hit.Content;
+            var content = HasProductFact(hit, fact) ? hit.ProductFacts! : hit.Content;
             if (fact is "minimumaantal spelers" or "maximumaantal spelers")
             {
                 var ranges = PlayerRange.Matches(content).Cast<Match>()
@@ -233,13 +233,18 @@ internal static class GameSearchEvidence
 
     private static int Strength(GameSearchHit hit, string fact)
     {
+        if (HasProductFact(hit, fact)) return 5;
         if (fact == "speelduur") return DurationLabel.IsMatch(hit.Content) ? 3 : 1;
         return Regex.IsMatch(hit.Content, @"\b(?:players?|spelers?)\s*:|\b(?:minimum|maximum|minimaal|maximaal)\b",
             RegexOptions.IgnoreCase) ? 3 : 2;
     }
 
-    public static string Context(IReadOnlyList<GameSearchHit> hits) => string.Join("\n", hits.Select(hit =>
-        $"Bron: {hit.Title} ({hit.Url}) — {hit.Content[..Math.Min(hit.Content.Length, 900)]}"));
+    public static string Context(IReadOnlyList<GameSearchHit> hits) => string.Join("\n", hits.Take(4).Select(hit =>
+        $"Bron: {hit.Title} ({hit.Url}); productspecificaties: {hit.ProductFacts ?? "niet afzonderlijk gevonden"}. "
+        + $"Paginainhoud: {hit.Content[..Math.Min(hit.Content.Length, 5000)]}"));
+
+    private static bool HasProductFact(GameSearchHit hit, string fact) => hit.ProductFacts is { } productFacts
+        && productFacts.Contains(fact == "speelduur" ? "Speelduur:" : "Spelers:", StringComparison.Ordinal);
 
     private static bool IsBgg(GameSearchHit hit) => Uri.TryCreate(hit.Url, UriKind.Absolute, out var uri)
         && (uri.Host.Equals("boardgamegeek.com", StringComparison.OrdinalIgnoreCase)

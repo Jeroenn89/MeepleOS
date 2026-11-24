@@ -3,6 +3,8 @@ window.meepleHeaderScroll = (() => {
     let scrollHandler;
     let resizeHandler;
     let headerObserver;
+    let accountOutsideHandler;
+    let accountKeyHandler;
 
     function start() {
         const header = document.querySelector(".site-head");
@@ -13,6 +15,8 @@ window.meepleHeaderScroll = (() => {
             document.removeEventListener("scroll", scrollHandler, true);
             window.removeEventListener("resize", resizeHandler);
             headerObserver?.disconnect();
+            if (accountOutsideHandler) document.removeEventListener("click", accountOutsideHandler);
+            if (accountKeyHandler) document.removeEventListener("keydown", accountKeyHandler);
         }
 
         activeHeader = header;
@@ -57,6 +61,21 @@ window.meepleHeaderScroll = (() => {
         window.addEventListener("scroll", scrollHandler, { passive: true });
         document.addEventListener("scroll", scrollHandler, true);
         header.addEventListener("click", () => header.classList.remove("is-scroll-hidden"));
+
+        const accountMenu = header.querySelector(".account-menu");
+        if (accountMenu) {
+            accountOutsideHandler = (event) => {
+                if (accountMenu.open && !accountMenu.contains(event.target)) accountMenu.open = false;
+            };
+            accountKeyHandler = (event) => {
+                if (event.key === "Escape" && accountMenu.open) {
+                    accountMenu.open = false;
+                    accountMenu.querySelector("summary")?.focus();
+                }
+            };
+            document.addEventListener("click", accountOutsideHandler);
+            document.addEventListener("keydown", accountKeyHandler);
+        }
     }
 
     return { start };

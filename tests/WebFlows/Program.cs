@@ -61,7 +61,6 @@ try
         db.Users.Add(new MeepleUser { Id = "roan-account", UserName = "roan" });
         (await db.Players.SingleAsync(p => p.Id == pallas.Id)).AccountId = "roan-account";
         db.AccountPlayers.Add(new AccountPlayer { AccountId = "roan-account", PlayerId = pallas.Id });
-        db.AccountBoardgames.Add(new AccountBoardgame { AccountId = "roan-account", BoardGameId = game.Id });
         foreach (var oldSessionId in await db.SessionPlayers.Where(p => p.PlayerId == pallas.Id).Select(p => p.GameSessionId).ToListAsync())
             db.AccountGameSessions.Add(new AccountGameSession { AccountId = "roan-account", GameSessionId = oldSessionId });
         await db.SaveChangesAsync();
@@ -69,11 +68,45 @@ try
     var roanContext = new TestAccountContext("roan-account");
     var roanSessions = new GameSessionService(new GameSessionRepository(factory, roanContext));
     var roanPlayers = new PlayerService(new PlayerRepository(factory, roanContext));
+    var roanGames = new BoardgameService(new BoardgameRepository(factory, roanContext));
+    Check((await roanGames.GetAllAsync()).Single().Id == game.Id && !(await roanGames.GetAllAsync()).Single().IsOwned,
+        "gespeeld bordspel is zichtbaar zonder bezit");
+    Check((await roanGames.GetCollectionAsync()).Count == 0, "gespeeld bordspel staat niet in eigen collectie of spelrad");
+    await using (var db = await factory.CreateDbContextAsync())
+    {
+        db.Users.Add(new MeepleUser { Id = "unrelated-account", UserName = "unrelated" });
+        await db.SaveChangesAsync();
+    }
+    var unrelatedGames = new BoardgameService(new BoardgameRepository(factory, new TestAccountContext("unrelated-account")));
+    Check((await unrelatedGames.GetAllAsync()).Count == 0, "andere accounts zien het bordspel niet");
+    var deniedCollection = false;
+    try { await unrelatedGames.AddToCollectionAsync(game.Id); }
+    catch (ArgumentException) { deniedCollection = true; }
+    Check(deniedCollection, "ongezien bordspel kan niet op ID worden geclaimd");
+    Check((await unrelatedGames.FindInCatalogAsync("testspel")) is { Id: var catalogId, IsOwned: false }
+        && catalogId == game.Id,
+        "algemene catalogus vindt een bestaande titel zonder eigenaar te tonen");
+    Check((await unrelatedGames.AddExistingToCollectionAsync("testspel")).Id == game.Id
+        && (await unrelatedGames.GetCollectionAsync()).Single().Id == game.Id,
+        "bestaand catalogusspel kan zonder online spelgegevens worden toegevoegd");
+    await using (var db = await factory.CreateDbContextAsync())
+        Check(await db.Boardgames.CountAsync() == 1, "catalogusspel blijft één record na tweede collectie");
+    await using (var db = await factory.CreateDbContextAsync())
+    {
+        db.AccountBoardgames.Remove(await db.AccountBoardgames.SingleAsync(x => x.AccountId == "unrelated-account"));
+        await db.SaveChangesAsync();
+    }
     var oldRoanCount = (await roanSessions.GetAllAsync()).Count;
     Check(oldRoanCount == 3 && (await roanPlayers.GetAllAsync()).Select(p => p.Id).SequenceEqual([pallas.Id]),
         "historische gedeelde potjes en afgeschermde spelerslijst");
     var shared = await sessions.RecordAsync(game.Id, date.AddDays(3), [new(jeroen.Id), new(pallas.Id)], [pallas.Id]);
     Check((await roanSessions.GetAllAsync()).Count == oldRoanCount + 1, "nieuw potje zichtbaar bij beide accounts");
+    Check((await roanGames.GetCollectionAsync()).Count == 0, "nieuw gedeeld potje geeft geen bezit");
+    var reused = await roanGames.AddAsync("testspel", 2, 4, 45);
+    Check(reused.Id == game.Id && (await roanGames.GetCollectionAsync()).Single().Id == game.Id,
+        "bestaand catalogusspel kan aan tweede collectie worden toegevoegd");
+    await using (var db = await factory.CreateDbContextAsync())
+        Check(await db.Boardgames.CountAsync() == 1, "catalogusspel is niet gedupliceerd");
     Check((await roanPlayers.GetAllAsync()).Any(p => p.Id == jeroen.Id), "medespeler beschikbaar bij gedeeld potje");
     Check((await new StatisticsService(new GameSessionRepository(factory, roanContext), new PlayerRepository(factory, roanContext),
         new BoardgameRepository(factory, roanContext)).GetPlayStatisticsAsync()).TotalPlays == oldRoanCount + 1,

@@ -17,6 +17,9 @@
         <input type="number" min="1" @bind="minutes" placeholder="Maximale speeltijd" />
     </label>
 </div>
+<label class="collection-visibility-filter">
+    <input type="checkbox" @bind="showPlayedNotOwned" /> Toon ook niet-bezeten spellen
+</label>
 <div class="collection-view-toolbar" role="group" aria-label="Weergave bordspellen">
     <span>Weergave</span>
     <button type="button" class="@(viewMode == "grid" ? "selected" : "")" aria-pressed="@(viewMode == "grid")" @onclick="ShowGrid">Met info</button>
@@ -32,8 +35,12 @@ else
         @foreach (var game in games.Where(MatchesFilters))
         {
             var playCount = playCounts.GetValueOrDefault(game.Id);
-            <a class="card game-collection-card @cardDecorations.GetValueOrDefault(game.Id)" href="/games/@game.Id" aria-label="@game.Name, @(playCount == 0 ? "nog niet gespeeld" : $"{playCount} keer gespeeld")">
+            var ownershipLabel = game.IsOwned ? "" : "niet in bezit, ";
+            var playLabel = playCount == 0 ? "nog niet gespeeld" : $"{playCount} keer gespeeld";
+            var ariaLabel = $"{game.Name}, {ownershipLabel}{playLabel}";
+            <a class="card game-collection-card @(!game.IsOwned ? "game-card-not-owned" : cardDecorations.GetValueOrDefault(game.Id))" href="/games/@game.Id" aria-label="@ariaLabel">
                 <h2>@game.Name</h2>
+                @if (!game.IsOwned) { <span class="ownership-tag">Niet in bezit</span> }
                 <div class="game-collection-details">
                     <div class="game-collection-facts">
                         <span>@game.MinPlayers–@(game.MaxPlayers?.ToString() ?? "∞") spelers</span>

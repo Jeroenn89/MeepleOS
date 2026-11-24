@@ -1,11 +1,13 @@
 using MeepleOS.AiClient;
 using MeepleOS.BusinessLayer.Services;
+using MeepleOS.DataLayer.Data.Models;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.Identity;
 
 namespace MeepleOS.Web.Services;
 
 public sealed class ChatService(WebOptions options, IHttpClientFactory httpFactory, ILogger<ChatService> logger,
-    IAccountContext account, IDataProtectionProvider protection)
+    IAccountContext account, IDataProtectionProvider protection, UserManager<MeepleUser> users)
 {
     public ChatConversation Conversation { get; } = new();
 
@@ -38,8 +40,9 @@ public sealed class ChatService(WebOptions options, IHttpClientFactory httpFacto
         try
         {
             var accountId = await account.GetAccountIdAsync();
+            var user = await users.FindByIdAsync(accountId) ?? throw new UnauthorizedAccessException();
             var token = protection.CreateProtector("MeepleOS.McpAccount.v1")
-                .ToTimeLimitedDataProtector().Protect(accountId, TimeSpan.FromMinutes(10));
+                .ToTimeLimitedDataProtector().Protect(new McpAuthPayload(accountId, user.SecurityStamp!).Serialize(), TimeSpan.FromMinutes(10));
             await using var tools = await McpTools.ConnectAsync(options.Root, databasePath: options.DatabasePath, authToken: token);
             using var http = httpFactory.CreateClient();
             http.Timeout = TimeSpan.FromSeconds(60);

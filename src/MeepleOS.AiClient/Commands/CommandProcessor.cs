@@ -32,7 +32,7 @@ public sealed partial class CommandProcessor(IMeepleTools tools, IPlanner planne
     public string? PendingSearchName { get; private set; } = pendingSearchName;
     public IReadOnlyCollection<int> RejectedBggIds { get; private set; } = rejectedBggIds ?? [];
     private static readonly HashSet<string> ReadKinds = ["get_boardgames", "get_players", "get_expansions", "get_sessions", "get_player_statistics", "get_boardgame_statistics", "get_leaderboard", "get_play_statistics"];
-    private static readonly HashSet<string> Kinds = [.. ReadKinds, "add_player", "add_boardgame", "add_expansion", "record_session", "update_player", "update_boardgame", "update_expansion", "update_session", "delete_player", "delete_boardgame", "delete_expansion", "delete_session"];
+    private static readonly HashSet<string> Kinds = [.. ReadKinds, "add_player", "add_boardgame", "add_to_collection", "add_expansion", "record_session", "update_player", "update_boardgame", "update_expansion", "update_session", "delete_player", "delete_boardgame", "delete_expansion", "delete_session"];
 
     public async Task<CommandResult> RunAsync(string command, DateOnly today, CancellationToken ct = default)
     {

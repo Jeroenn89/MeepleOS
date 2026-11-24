@@ -11,6 +11,7 @@
             <svg class="mobile-menu-close-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 5l14 14M19 5 5 19" /></svg>
         </button>
         <nav aria-label="Mobiele hoofdnavigatie" inert="@(!mobileMenuOpen)" @onclick="CloseMobileMenu">
+            <AuthorizeView><Authorized Context="accountState"><span class="signed-in-account">Ingelogd als @accountState.User.Identity?.Name</span></Authorized></AuthorizeView>
             <NavLink href="/" Match="NavLinkMatch.All">Dashboard</NavLink>
             <NavLink href="/games">Bordspellen</NavLink>
             <NavLink href="/wheel">Spelrad</NavLink>
@@ -36,6 +37,7 @@
         <details class="account-menu">
             <summary>Account</summary>
             <div class="account-menu-items">
+                <AuthorizeView><Authorized Context="accountState"><span class="signed-in-account">Ingelogd als @accountState.User.Identity?.Name</span></Authorized></AuthorizeView>
                 <AuthorizeView Roles="Admin"><Authorized><a href="/accounts">Accounts</a></Authorized></AuthorizeView>
                 <a href="/change-password">Wachtwoord wijzigen</a>
                 <form method="post" action="/logout"><AntiforgeryToken /><button type="submit">Uitloggen</button></form>

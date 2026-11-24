@@ -19,14 +19,23 @@ else
         <div>
             <span class="profile-eyebrow">Bordspelprofiel</span>
             <h1>@game.Name</h1>
+            @if (!game.IsOwned) { <span class="ownership-tag">Niet in bezit</span> }
             <div class="game-profile-facts">
                 <span>@game.MinPlayers–@(game.MaxPlayers?.ToString() ?? "∞") spelers</span>
                 <span>Circa @game.EstimatedMinutes minuten</span>
                 <span>@expansions.Count @(expansions.Count == 1 ? "uitbreiding" : "uitbreidingen")</span>
             </div>
         </div>
-        <a class="button secondary" href="/statistics">Bekijk statistieken</a>
+        @if (!game.IsOwned)
+        {
+            <button type="button" disabled="@addingToCollection" @onclick="AddToCollection">Toevoegen aan mijn collectie</button>
+        }
+        else
+        {
+            <a class="button secondary" href="/statistics">Bekijk statistieken</a>
+        }
     </header>
+    @if (collectionError is not null) { <p role="alert">@collectionError</p> }
 
     <section class="profile-metrics" aria-label="Bordspelcijfers">
         <div class="card profile-metric"><span>Gespeelde potjes</span><strong>@history.Count</strong></div>

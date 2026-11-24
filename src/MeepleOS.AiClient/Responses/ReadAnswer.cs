@@ -18,17 +18,22 @@ internal static class ReadAnswer
         Catalog catalog, IMeepleTools tools, CancellationToken ct)
     {
         var game = FindGame(question, catalog);
+        if (OwnQuestion.IsMatch(question) && catalog.SelfPlayerName is null && !CollectionQuestion.IsMatch(question))
+            throw new ClarificationNeededException("Aan dit account is nog geen speler gekoppeld. Welke speler bedoel je met 'ik'?");
         if (CollectionQuestion.IsMatch(question) && CollectionCountQuestion.IsMatch(question))
-            return $"Er staan {catalog.Boardgames.Count} {(catalog.Boardgames.Count == 1 ? "bordspel" : "bordspellen")} in je collectie.";
+        {
+            var ownedCount = catalog.Boardgames.Count(item => item.IsOwned);
+            return $"Er staan {ownedCount} {(ownedCount == 1 ? "bordspel" : "bordspellen")} in je collectie.";
+        }
         if (CollectionQuestion.IsMatch(question) && Regex.IsMatch(question,
             @"^\s*(?:staat|heb\s+ik|bezit\s+ik|is\s+.+\s+aanwezig)\b", RegexOptions.IgnoreCase))
-            return game is null ? "Nee, dit bordspel staat niet in je collectie." : $"Ja, {game.Name} staat in je collectie.";
+            return game is not { IsOwned: true } ? "Nee, dit bordspel staat niet in je collectie." : $"Ja, {game.Name} staat in je collectie.";
 
         if (WinPercentageQuestion.IsMatch(question))
         {
             var player = FindPlayer(question, catalog);
             if (player is null && OwnQuestion.IsMatch(question))
-                player = catalog.Players.FirstOrDefault(item => item.Name.Equals("Jeroen", StringComparison.OrdinalIgnoreCase));
+                player = catalog.Players.FirstOrDefault(item => item.Name.Equals(catalog.SelfPlayerName, StringComparison.OrdinalIgnoreCase));
             var stats = await tools.CallAsync("get_player_statistics", new { playerId = player?.Id, boardGameId = game?.Id }, ct);
             var rows = stats.EnumerateArray().Where(row => player is null || row.GetProperty("playerId").GetInt32() == player.Id).ToArray();
             if (rows.Length == 0) return player is null ? "Er zijn geen spelerstatistieken gevonden." : $"Voor {player.Name} zijn geen spelerstatistieken gevonden.";
@@ -49,7 +54,7 @@ internal static class ReadAnswer
         if (asksCount || asksWins || asksPlays)
         {
             var own = OwnQuestion.IsMatch(Regex.Replace(question, @"\bmijn\s+(?:collectie|verzameling)\b", "", RegexOptions.IgnoreCase));
-            var jeroen = catalog.Players.FirstOrDefault(player => player.Name.Equals("Jeroen", StringComparison.OrdinalIgnoreCase));
+            var self = catalog.Players.FirstOrDefault(player => player.Name.Equals(catalog.SelfPlayerName, StringComparison.OrdinalIgnoreCase));
             var data = await tools.CallAsync("get_game_sessions", game is null ? null : new { boardGameId = game.Id }, ct);
             var sessions = data.EnumerateArray().Select(row => new Session(
                 row.GetProperty("boardGameId").GetInt32(),
@@ -59,7 +64,7 @@ internal static class ReadAnswer
             var parts = new List<string>();
             if (asksCount)
             {
-                var count = sessions.Count(session => !own || jeroen is not null && session.Players.Any(player => player.PlayerId == jeroen.Id));
+                var count = sessions.Count(session => !own || self is not null && session.Players.Any(player => player.PlayerId == self.Id));
                 parts.Add(own
                     ? $"Je hebt {count} {(count == 1 ? "potje" : "potjes")}{(game is null ? "" : " " + game.Name)} gespeeld."
                     : $"Er {(count == 1 ? "is" : "zijn")} {count} {(count == 1 ? "potje" : "potjes")}{(game is null ? "" : " " + game.Name)} gespeeld.");
@@ -77,7 +82,7 @@ internal static class ReadAnswer
                 }
                 else
                 {
-                    var ranking = sessions.Where(session => !own || jeroen is not null && session.Players.Any(player => player.PlayerId == jeroen.Id))
+                    var ranking = sessions.Where(session => !own || self is not null && session.Players.Any(player => player.PlayerId == self.Id))
                         .GroupBy(session => session.BoardGameId)
                         .Select(group => (Id: group.Key, Plays: group.Count()))
                         .OrderByDescending(row => row.Plays).ThenBy(row => GameName(catalog, row.Id)).ToArray();
@@ -103,9 +108,9 @@ internal static class ReadAnswer
             switch (action.Kind)
             {
                 case "get_boardgames":
-                    result.Add(game is not null ? $"{game.Name} staat in je collectie."
-                        : catalog.Boardgames.Count == 0 ? "Je collectie is leeg."
-                        : $"Bordspellen in je collectie: {string.Join(", ", catalog.Boardgames.Select(item => item.Name))}.");
+                    result.Add(game is not null ? game.IsOwned ? $"{game.Name} staat in je collectie." : $"{game.Name} heb je gespeeld, maar staat niet in je collectie."
+                        : catalog.Boardgames.Count == 0 ? "Je bordspellenoverzicht is leeg."
+                        : $"Bordspellen in je overzicht: {string.Join(", ", catalog.Boardgames.Select(item => item.IsOwned ? item.Name : $"{item.Name} (niet in bezit)"))}.");
                     break;
                 case "get_players":
                     result.Add(catalog.Players.Count == 0 ? "Er zijn geen spelers geregistreerd."

@@ -57,5 +57,61 @@ internal sealed class TavilySearchClient(HttpClient http, string apiKey, Action<
         }
     }
 
+    internal async Task<string?> ExtractAsync(string url, CancellationToken ct)
+    {
+        onTrace?.Invoke($"Tavily leest de productpagina: {url}");
+        using var request = new HttpRequestMessage(HttpMethod.Post, "https://api.tavily.com/extract")
+        {
+            Content = JsonContent.Create(new { urls = new[] { url }, extract_depth = "advanced", format = "markdown" })
+        };
+        request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", apiKey);
+        HttpResponseMessage response;
+        try
+        {
+            RequestCount++;
+            response = await http.SendAsync(request, ct);
+        }
+        catch (HttpRequestException)
+        {
+            onTrace?.Invoke("Tavily kon de productpagina niet uitlezen; de gewone zoekroute blijft beschikbaar.");
+            return null;
+        }
+        catch (TaskCanceledException) when (!ct.IsCancellationRequested)
+        {
+            onTrace?.Invoke("Tavily reageerde niet op tijd bij het uitlezen van de productpagina.");
+            return null;
+        }
+        using (response)
+        {
+            if (response.StatusCode is HttpStatusCode.TooManyRequests or HttpStatusCode.PaymentRequired)
+                throw new GameSearchUnavailableException("Tavily heeft zijn zoeklimiet bereikt. Probeer het later opnieuw.");
+            if (!response.IsSuccessStatusCode)
+            {
+                onTrace?.Invoke($"Tavily kon de productpagina niet uitlezen (HTTP {(int)response.StatusCode}).");
+                return null;
+            }
+            try
+            {
+                using var json = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(ct), cancellationToken: ct);
+                if (!json.RootElement.TryGetProperty("results", out var results) || results.ValueKind != JsonValueKind.Array)
+                    return null;
+                foreach (var result in results.EnumerateArray())
+                {
+                    if (!result.TryGetProperty("url", out var resultUrl)
+                        || !url.Equals(resultUrl.GetString(), StringComparison.OrdinalIgnoreCase)
+                        || !result.TryGetProperty("raw_content", out var raw)
+                        || raw.ValueKind != JsonValueKind.String) continue;
+                    var content = raw.GetString();
+                    return string.IsNullOrWhiteSpace(content) ? null : content;
+                }
+            }
+            catch (JsonException)
+            {
+                onTrace?.Invoke("Tavily gaf geen leesbare productpagina terug.");
+            }
+            return null;
+        }
+    }
+
 
 }

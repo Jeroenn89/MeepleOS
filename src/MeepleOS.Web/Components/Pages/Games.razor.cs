@@ -15,6 +15,7 @@ public partial class Games
     private string? search;
     private int? players;
     private int? minutes;
+    private bool showPlayedNotOwned = true;
     private string viewMode = "grid";
 
     private void ShowGrid() => viewMode = "grid";
@@ -34,6 +35,7 @@ public partial class Games
 
     private bool MatchesFilters(BoardgameResult game) =>
         game.Name.Contains(search ?? "", StringComparison.OrdinalIgnoreCase)
+        && (showPlayedNotOwned || game.IsOwned)
         && (!players.HasValue ||
             game.MinPlayers <= players.Value &&
             (!game.MaxPlayers.HasValue || game.MaxPlayers >= players.Value))

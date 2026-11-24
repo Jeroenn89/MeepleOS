@@ -77,7 +77,9 @@ static class CounterChecks
         {
             object result = tool switch
             {
+                "get_my_account" => new { username = "test", playerId = (int?)null, playerName = (string?)null },
                 "get_boardgames" => new[] { new { id = 1, name = "Carcassonne" } },
+                "find_boardgame_in_catalog" => null!,
                 "get_players" or "get_game_expansions" => Array.Empty<object>(),
                 "add_boardgame" => new { id = 2, name = "Monopoly" },
                 _ => throw new Exception($"Onverwachte MCP-aanroep: {tool}")

@@ -34,7 +34,8 @@ public sealed class GameExpansionRepository(IDbContextFactory<MeepleDbContext> d
         var accountId = await account.GetAccountIdAsync();
         await using var db = await dbFactory.CreateDbContextAsync();
         var query = db.GameExpansions.AsNoTracking().Where(x =>
-            db.AccountBoardgames.Any(a => a.AccountId == accountId && a.BoardGameId == x.BoardGameId));
+            db.AccountBoardgames.Any(a => a.AccountId == accountId && a.BoardGameId == x.BoardGameId)
+            || db.SessionPlayers.Any(p => p.Player.AccountId == accountId && p.GameSession.BoardGameId == x.BoardGameId));
         if (boardGameId.HasValue)
             query = query.Where(x => x.BoardGameId == boardGameId.Value);
         return await query.OrderBy(x => x.BoardGame.Name).ThenBy(x => x.Name)

@@ -59,7 +59,7 @@ static async Task CheckTranslated(string dutch, string international, string sou
         .RunAsync($"Voeg het bordspel {dutch} toe", Today());
 
     Check(tools.AddedName == dutch && tools.MinPlayers == min && tools.MaxPlayers == max
-        && tools.Minutes == minutes, $"{dutch} wordt onder de Nederlandse titel opgeslagen");
+        && tools.Minutes == minutes, $"{dutch} wordt onder de Nederlandse titel opgeslagen: {result.Message}");
     Check(result.Message.Contains($"{dutch} toegevoegd") && result.Message.Contains(sourceUrl),
         $"Bevestiging van {dutch} bevat de gebruikte bron");
     Check(handler.Queries.Count == 2 && handler.Queries.Distinct().Count() == 2
@@ -105,6 +105,8 @@ sealed class FakeTools(params string[] existingGames) : IMeepleTools
             : JsonSerializer.SerializeToElement(arguments);
         object result = tool switch
         {
+            "get_my_account" => new { username = "test", playerId = (int?)null, playerName = (string?)null },
+            "find_boardgame_in_catalog" => null!,
             "get_boardgames" => existingGames.Select((name, index) => new { id = index + 1, name }).ToArray(),
             "get_players" or "get_game_expansions" => Array.Empty<object>(),
             "add_boardgame" => new { id = 99, name = input.GetProperty("name").GetString() },
@@ -128,6 +130,9 @@ sealed class SearchHandler(string dutch, string international, int min, int max,
 
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
     {
+        if (request.RequestUri?.AbsolutePath == "/extract")
+            return new HttpResponseMessage(HttpStatusCode.OK)
+                { Content = new StringContent("{\"results\":[]}") };
         using var body = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(ct));
         var query = body.RootElement.GetProperty("query").GetString()!;
         Queries.Add(query);

@@ -147,6 +147,18 @@ public sealed partial class TavilyGameSearch(HttpClient http, string apiKey, Act
         var official = first.FirstOrDefault(hit => GameSearchEvidence.IsPublisherSource(hit)
             && IsMatchingGeneral(hit, game));
         if (official is null) return first;
+        var rawPage = await searchClient.ExtractAsync(official.Url, ct);
+        if (!string.IsNullOrWhiteSpace(rawPage))
+        {
+            var enriched = ProductPageContent.Enrich(official, rawPage);
+            first = first.Select(hit => hit.Url.Equals(official.Url, StringComparison.OrdinalIgnoreCase)
+                ? enriched : hit).ToArray();
+            if (HasCompleteTrustedSource(first, game, missingFacts))
+            {
+                onTrace?.Invoke($"De productpagina van {new Uri(official.Url).Host} bevat alle gevraagde spelgegevens; extra zoekopdrachten overgeslagen.");
+                return first;
+            }
+        }
         var title = GameTitleMatcher.PageTitle(official.Title);
         string query;
         if (game.Equals(title, StringComparison.OrdinalIgnoreCase))

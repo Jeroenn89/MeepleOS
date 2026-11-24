@@ -9,6 +9,8 @@ public partial class GameProfile
     [Parameter] public int Id { get; set; }
 
     private BoardgameResult? game;
+    private bool addingToCollection;
+    private string? collectionError;
     private List<GameSessionResult> history = [];
     private List<GameExpansionResult> expansions = [];
     private List<PlayerStatistics> percentages = [];
@@ -45,5 +47,15 @@ public partial class GameProfile
             .Take(10)
             .Select(player => new ChartItem(player.PlayerName, player.Wins))
             .ToList();
+    }
+
+    private async Task AddToCollection()
+    {
+        if (game is null || game.IsOwned || addingToCollection) return;
+        addingToCollection = true;
+        collectionError = null;
+        try { game = await Games.AddToCollectionAsync(game.Id); }
+        catch (Exception) { collectionError = "Toevoegen aan je collectie is niet gelukt."; }
+        finally { addingToCollection = false; }
     }
 }

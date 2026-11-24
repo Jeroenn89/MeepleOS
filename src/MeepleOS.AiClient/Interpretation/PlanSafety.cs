@@ -64,15 +64,27 @@ internal static partial class PlanSafety
             {
                 case "add_player":
                     var isParticipant = plan.Actions.Any(candidate => candidate.Kind == "record_session"
-                        && candidate.Players.Any(player => Names.Equals(CanonicalPlayer(player.Name), CanonicalPlayer(action.Name))));
+                        && candidate.Players.Any(player => Names.Equals(CanonicalPlayer(player.Name, catalog.SelfPlayerName), CanonicalPlayer(action.Name, catalog.SelfPlayerName))));
                     if (!isParticipant && !Regex.IsMatch(command,
                             @"\b(?:voeg|registreer|maak)\b[^.;\r\n]*\bspeler\b", RegexOptions.IgnoreCase))
                         throw new ClarificationNeededException($"Wil je {action.Name} als speler toevoegen?");
-                    AddPlayer(action.Name, command, players, prepared, isParticipant);
+                    AddPlayer(action.Name, command, players, prepared, catalog.SelfPlayerName, isParticipant);
                     break;
 
                 case "add_boardgame":
+                    if (catalog.Boardgames.FirstOrDefault(game => Names.Equals(game.Name, action.Name)) is { IsOwned: false } playedGame
+                        && Regex.IsMatch(command, @"\b(?:voeg|toevoegen|zet)\b", RegexOptions.IgnoreCase))
+                    {
+                        prepared.Add(new ActionPlan { Kind = "add_to_collection", Name = playedGame.Name });
+                        break;
+                    }
                     AddBoardgame(action.Name, command, games, prepared, searchHits, onTrace, verifiedGameName, action);
+                    break;
+
+                case "add_to_collection":
+                    if (!Regex.IsMatch(command, @"\b(?:voeg|toevoegen|zet)\b", RegexOptions.IgnoreCase))
+                        throw new ClarificationNeededException("Wil je dit bordspel aan je collectie toevoegen?");
+                    prepared.Add(action);
                     break;
 
                 case "add_expansion":
@@ -80,7 +92,7 @@ internal static partial class PlanSafety
                     break;
 
                 case "record_session":
-                    PrepareSession(action, command, games, players, expansions, prepared, searchHits, onTrace, verifiedGameName);
+                    PrepareSession(action, command, games, players, expansions, prepared, searchHits, onTrace, verifiedGameName, catalog.SelfPlayerName);
                     prepared.Add(action);
                     break;
 

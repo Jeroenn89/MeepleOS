@@ -12,7 +12,8 @@ public sealed class GameSessionRepository(IDbContextFactory<MeepleDbContext> dbF
     {
         var accountId = await account.GetAccountIdAsync();
         await using var db = await dbFactory.CreateDbContextAsync();
-        return await db.AccountBoardgames.AnyAsync(x => x.AccountId == accountId && x.BoardGameId == boardGameId);
+        return await db.AccountBoardgames.AnyAsync(x => x.AccountId == accountId && x.BoardGameId == boardGameId)
+            || await db.SessionPlayers.AnyAsync(x => x.Player.AccountId == accountId && x.GameSession.BoardGameId == boardGameId);
     }
 
     public async Task<HashSet<int>> GetExistingPlayerIdsAsync(IReadOnlyCollection<int> playerIds)
@@ -31,7 +32,8 @@ public sealed class GameSessionRepository(IDbContextFactory<MeepleDbContext> dbF
     {
         var accountId = await account.GetAccountIdAsync();
         await using var db = await dbFactory.CreateDbContextAsync();
-        if (!await db.AccountBoardgames.AnyAsync(x => x.AccountId == accountId && x.BoardGameId == boardGameId)) return [];
+        if (!await db.AccountBoardgames.AnyAsync(x => x.AccountId == accountId && x.BoardGameId == boardGameId)
+            && !await db.SessionPlayers.AnyAsync(x => x.Player.AccountId == accountId && x.GameSession.BoardGameId == boardGameId)) return [];
         var ids = expansionIds.ToArray();
         return (await db.GameExpansions.Where(x => x.BoardGameId == boardGameId && ids.Contains(x.Id))
             .Select(x => x.Id).ToListAsync()).ToHashSet();
@@ -43,7 +45,8 @@ public sealed class GameSessionRepository(IDbContextFactory<MeepleDbContext> dbF
     {
         var accountId = await account.GetAccountIdAsync();
         await using var db = await dbFactory.CreateDbContextAsync();
-        if (!await db.AccountBoardgames.AnyAsync(x => x.AccountId == accountId && x.BoardGameId == boardGameId))
+        if (!await db.AccountBoardgames.AnyAsync(x => x.AccountId == accountId && x.BoardGameId == boardGameId)
+            && !await db.SessionPlayers.AnyAsync(x => x.Player.AccountId == accountId && x.GameSession.BoardGameId == boardGameId))
             throw new UnauthorizedAccessException("Het bordspel is niet beschikbaar.");
         var playerIds = players.Select(x => x.PlayerId).ToArray();
         if (await db.AccountPlayers.CountAsync(x => x.AccountId == accountId && playerIds.Contains(x.PlayerId)) != playerIds.Length)
@@ -75,8 +78,6 @@ public sealed class GameSessionRepository(IDbContextFactory<MeepleDbContext> dbF
         foreach (var linkedId in linkedAccounts.Where(x => x != accountId))
         {
             db.AccountGameSessions.Add(new AccountGameSession { AccountId = linkedId, GameSession = session });
-            if (!await db.AccountBoardgames.AnyAsync(x => x.AccountId == linkedId && x.BoardGameId == boardGameId))
-                db.AccountBoardgames.Add(new AccountBoardgame { AccountId = linkedId, BoardGameId = boardGameId });
             foreach (var playerId in playerIds)
                 if (!await db.AccountPlayers.AnyAsync(x => x.AccountId == linkedId && x.PlayerId == playerId))
                     db.AccountPlayers.Add(new AccountPlayer { AccountId = linkedId, PlayerId = playerId });
@@ -149,7 +150,8 @@ public sealed class GameSessionRepository(IDbContextFactory<MeepleDbContext> dbF
         if (session is null)
             return null;
 
-        if (!await db.AccountBoardgames.AnyAsync(x => x.AccountId == accountId && x.BoardGameId == boardGameId))
+        if (!await db.AccountBoardgames.AnyAsync(x => x.AccountId == accountId && x.BoardGameId == boardGameId)
+            && !await db.SessionPlayers.AnyAsync(x => x.Player.AccountId == accountId && x.GameSession.BoardGameId == boardGameId))
             throw new ArgumentException("Het bordspel bestaat niet.", nameof(boardGameId));
 
         var ids = players.Select(x => x.PlayerId).ToArray();
@@ -187,8 +189,6 @@ public sealed class GameSessionRepository(IDbContextFactory<MeepleDbContext> dbF
             db.AccountGameSessions.Add(new AccountGameSession { AccountId = linkedId, GameSessionId = id });
         foreach (var linkedId in linkedAccountIds)
         {
-            if (!await db.AccountBoardgames.AnyAsync(x => x.AccountId == linkedId && x.BoardGameId == boardGameId))
-                db.AccountBoardgames.Add(new AccountBoardgame { AccountId = linkedId, BoardGameId = boardGameId });
             foreach (var playerId in ids)
                 if (!await db.AccountPlayers.AnyAsync(x => x.AccountId == linkedId && x.PlayerId == playerId))
                     db.AccountPlayers.Add(new AccountPlayer { AccountId = linkedId, PlayerId = playerId });

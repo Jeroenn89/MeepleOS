@@ -74,7 +74,7 @@ public partial class Wheel : IDisposable
 
     protected override async Task OnInitializedAsync()
     {
-        games = await GameService.GetAllAsync();
+        games = await GameService.GetCollectionAsync();
         RebuildWheel();
     }
 

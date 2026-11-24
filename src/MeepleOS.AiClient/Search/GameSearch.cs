@@ -1,6 +1,6 @@
 namespace MeepleOS.AiClient;
 
-public sealed record GameSearchHit(string Title, string Url, string Content);
+public sealed record GameSearchHit(string Title, string Url, string Content, string? ProductFacts = null);
 public sealed class GameSearchUnavailableException(string message) : Exception(message);
 
 public interface IGameSearch

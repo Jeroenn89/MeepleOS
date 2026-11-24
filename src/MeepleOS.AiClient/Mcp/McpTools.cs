@@ -6,7 +6,7 @@ namespace MeepleOS.AiClient;
 
 public sealed class McpTools : IMeepleTools, IAsyncDisposable
 {
-    private static readonly HashSet<string> ReadTools = ["get_boardgames", "get_players", "get_game_expansions", "get_game_sessions", "get_player_statistics", "get_boardgame_statistics", "get_leaderboard", "get_play_statistics"];
+    private static readonly HashSet<string> ReadTools = ["get_my_account", "get_my_collection", "find_boardgame_in_catalog", "get_boardgames", "get_players", "get_game_expansions", "get_game_sessions", "get_player_statistics", "get_boardgame_statistics", "get_leaderboard", "get_play_statistics"];
     private readonly McpClient client;
     private readonly bool readOnly;
     private readonly string temporaryServerDirectory;
@@ -61,8 +61,10 @@ public sealed class McpTools : IMeepleTools, IAsyncDisposable
             JsonSerializer.Deserialize<Dictionary<string, object?>>(JsonSerializer.Serialize(arguments))!;
         var result = await client.CallToolAsync(tool, map, cancellationToken: ct);
         if (result.IsError == true) throw new InvalidOperationException($"MCP {tool}: {string.Join(" ", result.Content.OfType<TextContentBlock>().Select(x => x.Text))}");
-        var content = result.Content.OfType<TextContentBlock>().FirstOrDefault()?.Text
-            ?? throw new InvalidOperationException($"MCP {tool} gaf geen leesbaar resultaat.");
+        var content = result.Content.OfType<TextContentBlock>().FirstOrDefault()?.Text;
+        if (content is null && tool == "find_boardgame_in_catalog")
+            return JsonSerializer.SerializeToElement<object?>(null);
+        if (content is null) throw new InvalidOperationException($"MCP {tool} gaf geen leesbaar resultaat.");
         using var json = JsonDocument.Parse(content);
         return json.RootElement.Clone();
     }

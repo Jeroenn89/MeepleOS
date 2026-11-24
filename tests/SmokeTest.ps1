@@ -49,12 +49,14 @@ try {
     $process.StandardInput.WriteLine('{"jsonrpc":"2.0","method":"notifications/initialized"}')
     $tools = Invoke-Mcp 2 'tools/list' @{}
     $names = @($tools.tools | ForEach-Object { $_.name })
-    foreach ($name in @('add_boardgame', 'get_boardgames', 'add_player', 'get_players', 'record_game_session', 'get_game_sessions',
+    foreach ($name in @('get_my_account', 'get_my_collection', 'find_boardgame_in_catalog', 'add_existing_boardgame_to_collection', 'add_boardgame_to_collection', 'add_boardgame', 'get_boardgames', 'add_player', 'get_players', 'record_game_session', 'get_game_sessions',
         'get_player_statistics', 'get_boardgame_statistics', 'get_leaderboard', 'get_play_statistics',
         'update_boardgame', 'delete_boardgame', 'update_player', 'delete_player', 'update_game_session', 'delete_game_session',
         'add_game_expansion', 'get_game_expansions', 'update_game_expansion', 'delete_game_expansion')) {
         if ($name -notin $names) { throw "Ontbrekende tool: $name" }
     }
+    $identity = Get-ToolData (Invoke-Mcp 60 'tools/call' @{ name = 'get_my_account'; arguments = @{} })
+    if ($identity.username -ne 'smoke' -or $null -ne $identity.playerId) { throw 'MCP-accountidentiteit is onjuist' }
     foreach ($name in @('delete_boardgame', 'delete_player', 'delete_game_session', 'delete_game_expansion')) {
         $tool = $tools.tools | Where-Object { $_.name -eq $name }
         if ($tool.annotations.destructiveHint -ne $true) { throw "Destructieve annotatie ontbreekt bij $name" }
@@ -78,6 +80,16 @@ try {
 
     $game = Invoke-Mcp 3 'tools/call' @{ name = 'add_boardgame'; arguments = @{ name = ' Azul '; minPlayers = 2; maxPlayers = 4; estimatedMinutes = 45 } }
     if ($game.isError) { throw 'add_boardgame mislukt' }
+    $catalogGame = Get-ToolData (Invoke-Mcp 87 'tools/call' @{ name = 'find_boardgame_in_catalog'; arguments = @{ name = 'azul' } })
+    if ($catalogGame.name -ne 'Azul' -or $catalogGame.minPlayers -ne 2 -or $catalogGame.estimatedMinutes -ne 45) {
+        throw 'Gedeelde catalogus gaf bestaande spelgegevens niet terug'
+    }
+    $missingCatalog = Invoke-Mcp 89 'tools/call' @{ name = 'find_boardgame_in_catalog'; arguments = @{ name = 'Bestaat niet' } }
+    if ($missingCatalog.isError -or $missingCatalog.structuredContent -or $missingCatalog.content) {
+        throw 'Een onbekende titel kreeg ten onrechte een catalogusresultaat'
+    }
+    $claimed = Get-ToolData (Invoke-Mcp 88 'tools/call' @{ name = 'add_existing_boardgame_to_collection'; arguments = @{ name = 'azul' } })
+    if ($claimed.id -ne $catalogGame.id) { throw 'Bestaande catalogustitel werd niet hergebruikt' }
     $unlimited = Get-ToolData (Invoke-Mcp 83 'tools/call' @{ name = 'add_boardgame'; arguments = @{
         name = 'Open spel'; minPlayers = 1; maxPlayers = $null; estimatedMinutes = 30
     } })
@@ -88,6 +100,10 @@ try {
     if (-not $unknownMaximum.isError) { throw 'Ontbrekend maximum werd als onbeperkt aanvaard' }
     $games = Invoke-Mcp 4 'tools/call' @{ name = 'get_boardgames'; arguments = @{} }
     if ($games.isError -or ($games | ConvertTo-Json -Depth 10) -notmatch 'Azul') { throw 'get_boardgames gaf Azul niet terug' }
+    $collection = @(Get-ToolData (Invoke-Mcp 86 'tools/call' @{ name = 'get_my_collection'; arguments = @{} }))
+    if ($collection.Count -ne 2 -or @($collection | Where-Object { -not $_.isOwned }).Count -ne 0) {
+        throw 'get_my_collection gaf niet uitsluitend eigen bordspellen terug'
+    }
     $openGame = @(Get-ToolData $games) | Where-Object { $_.id -eq $unlimited.id }
     if (@($openGame).Count -ne 1 -or $null -ne $openGame.maxPlayers) { throw 'get_boardgames gaf null niet correct terug' }
 
@@ -414,7 +430,7 @@ try {
     $null = Get-ToolData (Invoke-Mcp 78 'tools/call' @{ name = 'delete_game_expansion'; arguments = @{
         id = $firstExpansion.id
     } })
-    Write-Output 'MCP-smoketest geslaagd: twintig tools, uitbreidingen, CRUD, statistieken, filters en validatie.'
+    Write-Output "MCP-smoketest geslaagd: $($names.Count) tools, uitbreidingen, CRUD, statistieken, filters en validatie."
 }
 finally {
     $process.StandardInput.Close()

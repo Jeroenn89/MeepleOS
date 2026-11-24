@@ -2,8 +2,8 @@ using System.Text.Json.Serialization;
 
 namespace MeepleOS.AiClient;
 
-public sealed record Item(int Id, string Name, int? BoardGameId = null);
-public sealed record Catalog(List<Item> Boardgames, List<Item> Players, List<Item> Expansions);
+public sealed record Item(int Id, string Name, int? BoardGameId = null, bool IsOwned = true, bool CatalogOnly = false);
+public sealed record Catalog(List<Item> Boardgames, List<Item> Players, List<Item> Expansions, string? SelfPlayerName = null);
 
 public sealed class Plan
 {

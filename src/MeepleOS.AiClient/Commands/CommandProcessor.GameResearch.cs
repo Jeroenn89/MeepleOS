@@ -12,6 +12,26 @@ public sealed partial class CommandProcessor
         IReadOnlyList<GameSearchHit> searchHits = [];
         string? verifiedGameName = null;
         string? verifiedRequestedName = null;
+        if (!readOnly && gameSearch is not null && plan.Actions is not null)
+        {
+            foreach (var action in plan.Actions.Where(action => action.Kind is "add_boardgame" or "add_to_collection"
+                && !string.IsNullOrWhiteSpace(action.Name)
+                && !catalog.Boardgames.Any(game => game.Name.Equals(action.Name, StringComparison.OrdinalIgnoreCase))
+                && BoardgameMention.MatchesCommandName(fullCommand, action.Name!)
+                && !plan.Actions.Any(session => session.Kind == "record_session"
+                    && string.Equals(session.Boardgame, action.Name, StringComparison.OrdinalIgnoreCase))).ToArray())
+            {
+                var match = await tools.CallAsync("find_boardgame_in_catalog", new { name = action.Name!.Trim() }, ct);
+                if (match.ValueKind != System.Text.Json.JsonValueKind.Object) continue;
+                var canonicalName = match.GetProperty("name").GetString()!;
+                catalog.Boardgames.Add(new Item(match.GetProperty("id").GetInt32(), canonicalName,
+                    IsOwned: false, CatalogOnly: true));
+                action.Kind = "add_to_collection";
+                action.Name = canonicalName;
+                if (plan.Question is not null && MissingFactsQuestion.IsMatch(plan.Question)) plan.Question = null;
+                onTrace?.Invoke($"{canonicalName} gevonden in de gedeelde catalogus; online zoeken overgeslagen.");
+            }
+        }
         if (!readOnly && gameSearch is not null && (PlanSafety.NeedsGameFacts(fullCommand) || rejectedChoices))
         {
             var newGame = FindNewGameName(command, fullCommand, plan, catalog, chosenHit, rejectedChoices);

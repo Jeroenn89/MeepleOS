@@ -12,8 +12,20 @@ public sealed class BoardgameTools(BoardgameService boardgames)
     public Task<BoardgameResult> AddBoardgame(string name, int minPlayers, int? maxPlayers, int estimatedMinutes) =>
         boardgames.AddAsync(name, minPlayers, maxPlayers, estimatedMinutes);
 
-    [McpServerTool(Name = "get_boardgames"), Description("Haal alle opgeslagen bordspellen op.")]
+    [McpServerTool(Name = "get_boardgames"), Description("Haal bordspellen op die dit account bezit of heeft gespeeld; isOwned geeft bezit aan.")]
     public Task<List<BoardgameResult>> GetBoardgames() => boardgames.GetAllAsync();
+
+    [McpServerTool(Name = "get_my_collection"), Description("Haal uitsluitend de bordspellen op die het ingelogde account bezit.")]
+    public Task<List<BoardgameResult>> GetMyCollection() => boardgames.GetCollectionAsync();
+
+    [McpServerTool(Name = "find_boardgame_in_catalog"), Description("Zoek een bordspel op exacte titel in de gedeelde catalogus, zonder gegevens over andere accounts.")]
+    public Task<BoardgameResult?> FindBoardgameInCatalog(string name) => boardgames.FindInCatalogAsync(name);
+
+    [McpServerTool(Name = "add_existing_boardgame_to_collection"), Description("Voeg een bestaande catalogustitel op exacte naam toe aan de collectie van het ingelogde account.")]
+    public Task<BoardgameResult> AddExistingBoardgameToCollection(string name) => boardgames.AddExistingToCollectionAsync(name);
+
+    [McpServerTool(Name = "add_boardgame_to_collection"), Description("Voeg een eerder gespeeld bordspel toe aan de persoonlijke collectie van het ingelogde account.")]
+    public Task<BoardgameResult> AddBoardgameToCollection(int id) => boardgames.AddToCollectionAsync(id);
 
     [McpServerTool(Name = "update_boardgame"), Description("Wijzig velden via changes. Laat maxPlayers weg om het te behouden; maxPlayers: null verwijdert een vast maximum wanneer de gebruiker aangeeft dat het spel geen maximum heeft.")]
     public Task<BoardgameResult> UpdateBoardgame(int id, JsonElement changes) =>

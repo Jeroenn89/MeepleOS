@@ -8,8 +8,12 @@ internal static partial class PlanSafety
     private static void PrepareSession(
         ActionPlan session, string command, HashSet<string> games, HashSet<string> players,
         List<(string? Game, string Name)> expansions, List<ActionPlan> prepared,
-        IReadOnlyList<GameSearchHit>? searchHits, Action<string>? onTrace, string? verifiedGameName)
+        IReadOnlyList<GameSearchHit>? searchHits, Action<string>? onTrace, string? verifiedGameName,
+        string? selfPlayerName)
     {
+        var refersToSelf = Regex.IsMatch(command, @"\b(?:ik|mij|mezelf)\b", RegexOptions.IgnoreCase);
+        if (refersToSelf && selfPlayerName is null)
+            throw new ClarificationNeededException("Aan dit account is nog geen speler gekoppeld. Welke speler bedoel je met 'ik'?");
         if (string.IsNullOrWhiteSpace(session.Boardgame))
             throw new ClarificationNeededException("Welk bordspel heb je gespeeld?");
 
@@ -20,7 +24,7 @@ internal static partial class PlanSafety
         var participants = new List<ParticipantPlan>();
         foreach (var plannedParticipant in session.Players)
         {
-            var expandedNames = ExpandKnownPlayers(plannedParticipant.Name, players);
+            var expandedNames = ExpandKnownPlayers(plannedParticipant.Name, players, selfPlayerName);
             if (expandedNames.Count > 1 && (plannedParticipant.Score.HasValue || plannedParticipant.Position.HasValue))
                 throw new ClarificationNeededException($"Bij welke deelnemer horen de score en positie van {plannedParticipant.Name}?");
 
@@ -28,6 +32,8 @@ internal static partial class PlanSafety
             {
                 if (string.IsNullOrWhiteSpace(name))
                     throw new ClarificationNeededException("Welke speler deed mee?");
+                if (!Names.Equals(name, selfPlayerName) && !Mentioned(command, name))
+                    throw new ClarificationNeededException($"Deed {name} mee aan het potje?");
 
                 var duplicate = participants.FirstOrDefault(existing => Names.Equals(existing.Name, name));
                 if (duplicate is not null)
@@ -42,7 +48,7 @@ internal static partial class PlanSafety
                 }
 
                 if (!players.Contains(name))
-                    AddPlayer(name, command, players, prepared, participant: true);
+                    AddPlayer(name, command, players, prepared, selfPlayerName, participant: true);
 
                 participants.Add(new ParticipantPlan
                 {
@@ -54,8 +60,8 @@ internal static partial class PlanSafety
         }
         session.Players = participants;
         if (Regex.IsMatch(command, @"\bik\s+(?:heb\b[^.;\r\n]*\bgespeeld|speelde)\b", RegexOptions.IgnoreCase)
-            && players.Contains("Jeroen") && !participants.Any(p => Names.Equals(p.Name, "Jeroen")))
-            participants.Insert(0, new ParticipantPlan { Name = "Jeroen" });
+            && selfPlayerName is not null && players.Contains(selfPlayerName) && !participants.Any(p => Names.Equals(p.Name, selfPlayerName)))
+            participants.Insert(0, new ParticipantPlan { Name = selfPlayerName });
 
         var ordered = OrderedScores.Match(command);
         if (ordered.Success && participants.All(p => !p.Score.HasValue))
@@ -66,13 +72,13 @@ internal static partial class PlanSafety
                 for (var index = 0; index < participants.Count; index++) participants[index].Score = values[index];
         }
         session.Winners = session.Winners
-            .SelectMany(winner => ExpandKnownPlayers(winner, players))
+            .SelectMany(winner => ExpandKnownPlayers(winner, players, selfPlayerName))
             .Distinct(Names)
             .ToList();
         var explicitlyNamed = participants.Where(participant =>
             Regex.IsMatch(command, $@"(?<![\p{{L}}\p{{N}}]){Regex.Escape(participant.Name)}\s+(?:won|heeft\s+gewonnen)\b",
                 RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)
-            || Names.Equals(participant.Name, "Jeroen") && Regex.IsMatch(command,
+            || Names.Equals(participant.Name, selfPlayerName) && Regex.IsMatch(command,
                 @"\bik\s+(?:won|heb\s+gewonnen)\b", RegexOptions.IgnoreCase))
             .Select(participant => participant.Name).ToList();
         if (explicitlyNamed.Count == 1) session.Winners = explicitlyNamed;

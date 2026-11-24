@@ -4,7 +4,7 @@ namespace MeepleOS.Web.Services;
 
 internal static class AuthPage
 {
-    public static IResult Render(string title, string introduction, string form, string message = "", bool showBackLink = true)
+    public static IResult Render(string title, string introduction, string form, string message = "", bool showBackLink = true, bool wide = false)
     {
         var backLink = showBackLink ? "<a class=\"auth-back\" href=\"/\">← Terug naar MeepleOS</a>" : "";
         return Results.Content($$"""
@@ -23,7 +23,7 @@ internal static class AuthPage
             <body class="auth-body">
                 <header class="auth-header"><a class="brand" href="/"><img class="brand-logo" src="/meepleos-logo.png" alt="" width="36" height="44">MeepleOS</a></header>
                 <main class="auth-main">
-                    <section class="auth-card" aria-labelledby="auth-title">
+                    <section class="auth-card {{(wide ? "auth-card-wide" : "")}}" aria-labelledby="auth-title">
                         {{backLink}}
                         <h1 id="auth-title">{{WebUtility.HtmlEncode(title)}}</h1>
                         <p class="intro">{{WebUtility.HtmlEncode(introduction)}}</p>

@@ -29,8 +29,10 @@ if (string.IsNullOrWhiteSpace(authToken))
 var keysPath = databasePath + ".auth-keys";
 var tokenProtector = DataProtectionProvider.Create(new DirectoryInfo(keysPath), builder => builder.SetApplicationName("MeepleOS"))
     .CreateProtector("MeepleOS.McpAccount.v1").ToTimeLimitedDataProtector();
-var accountId = tokenProtector.Unprotect(authToken);
-builder.Services.AddSingleton<IAccountContext>(new McpAccountContext(authToken, tokenProtector));
+var payload = McpAuthPayload.Parse(tokenProtector.Unprotect(authToken));
+var accountId = payload.AccountId;
+builder.Services.AddSingleton<IAccountContext>(services => new McpAccountContext(authToken, tokenProtector,
+    services.GetRequiredService<IDbContextFactory<MeepleDbContext>>()));
 if (!readOnly) Directory.CreateDirectory(Path.GetDirectoryName(databasePath)!);
 var connection = new SqliteConnectionStringBuilder { DataSource = databasePath, Mode = readOnly ? SqliteOpenMode.ReadOnly : SqliteOpenMode.ReadWriteCreate };
 builder.Services.AddDbContextFactory<MeepleDbContext>(options => options.UseSqlite(connection.ToString()));
@@ -56,6 +58,7 @@ builder.Services.AddSingleton<StatisticsService>();
 // MCP-commando's per categorie.
 var mcp = builder.Services.AddMcpServer().WithStdioServerTransport();
 mcp.WithTools<BoardgameTools>(); // bordspellen toevoegen, bekijken, wijzigen en verwijderen
+mcp.WithTools<AccountTools>();
 mcp.WithTools<GameExpansionTools>(); // uitbreidingen beheren
 mcp.WithTools<PlayerTools>();    // spelers toevoegen, bekijken, wijzigen en verwijderen
 mcp.WithTools<GameSessionTools>(); // potjes registreren, bekijken, wijzigen en verwijderen
@@ -65,7 +68,7 @@ mcp.WithTools<StatisticsTools>(); // vier statistiektools
 using var host = builder.Build();
 await using (var identityDb = await host.Services.GetRequiredService<IDbContextFactory<MeepleDbContext>>().CreateDbContextAsync())
 {
-    if (!await identityDb.Users.AnyAsync(x => x.Id == accountId))
+    if (!await identityDb.Users.AnyAsync(x => x.Id == accountId && x.SecurityStamp == payload.SecurityStamp))
         throw new UnauthorizedAccessException("Het MCP-account bestaat niet meer.");
 }
 if (!readOnly)

@@ -78,7 +78,8 @@ internal static class GamePageSelector
         .GroupBy(hit => hit.Url, StringComparer.OrdinalIgnoreCase)
         .Select(group => group.First() with
         {
-            Content = string.Join(" ", group.Select(hit => hit.Content).Distinct(StringComparer.Ordinal))
+            Content = string.Join(" ", group.Select(hit => hit.Content).Distinct(StringComparer.Ordinal)),
+            ProductFacts = group.Select(hit => hit.ProductFacts).FirstOrDefault(facts => !string.IsNullOrWhiteSpace(facts))
         }).ToList();
 
     internal static bool IsBgg(GameSearchHit hit) => Uri.TryCreate(hit.Url, UriKind.Absolute, out var uri)

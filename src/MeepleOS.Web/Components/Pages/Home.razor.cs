@@ -28,7 +28,7 @@ public partial class Home
 
     protected override async Task OnInitializedAsync()
     {
-        var games = await Games.GetAllAsync();
+        var games = await Games.GetCollectionAsync();
         var players = await Players.GetAllAsync();
         history = await Sessions.GetAllAsync();
         gameCount = games.Count;

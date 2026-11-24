@@ -1539,3 +1539,51 @@ button:hover,.button:hover {
 .auth-message { padding: .8rem 1rem; border-radius: .3rem; margin: 0 0 1.25rem; }
 .auth-error { background: #F5D9CD; border: 1px solid #B56B4C; color: #5B2B1E; }
 .auth-success { background: #E5EDCF; border: 1px solid #799057; color: #344322; }
+.collection-visibility-filter {
+    display: inline-flex;
+    align-items: center;
+    gap: .5rem;
+    margin: .2rem 0 1rem;
+}
+.collection-visibility-filter input { width: 1.1rem; height: 1.1rem; accent-color: var(--accent); }
+.game-card-not-owned {
+    background: #D8E9E4;
+    border: 2px solid #497C74;
+    box-shadow: 3px 4px 0 #27574D33;
+}
+.game-card-not-owned:hover { border-color: #285C52; }
+.ownership-tag {
+    display: inline-block;
+    width: fit-content;
+    padding: .2rem .55rem;
+    border-radius: 2rem;
+    background: #285C52;
+    color: #FFF9EA;
+    font: 700 .78rem var(--font-body);
+    letter-spacing: .02em;
+}
+.auth-card-wide { width: min(100%, 800px); }
+.account-create { padding: 1rem; border: 1px solid var(--line); border-radius: .3rem; background: var(--surface-soft); }
+.account-create summary, .account-list summary { cursor: pointer; font-weight: 700; color: var(--nav); }
+.account-create form { margin-top: 1rem; }
+.account-list { display: grid; gap: .75rem; margin-top: 2rem; }
+.account-list h2 { margin: 0; color: var(--nav); }
+.account-search { display: grid; gap: .35rem !important; }
+.account-search div { display: flex; gap: .5rem; }
+.account-search input { min-width: 0; flex: 1; }
+.account-search button { width: auto; margin: 0; }
+.account-result-count { margin: 0; color: var(--muted); font-size: .9rem; }
+.account-list article { padding: .8rem 1rem; border: 1px solid var(--line); border-radius: .3rem; background: var(--surface-soft); }
+.account-list article summary { display: flex; align-items: baseline; gap: .5rem 1rem; flex-wrap: wrap; }
+.account-list article summary::before { content: '▸'; }
+.account-list article details[open] summary::before { content: '▾'; }
+.account-summary-name { overflow-wrap: anywhere; }
+.account-summary-meta { color: var(--muted); font-size: .85rem; font-weight: 400; }
+.account-actions { padding: .5rem 0 0 1.2rem; }
+.account-list article form { margin-top: .8rem; }
+.account-list article button { width: auto; }
+.account-pagination { display: flex; justify-content: space-between; align-items: center; gap: 1rem; margin-top: .5rem; }
+.account-pagination a { padding: .5rem .7rem; border: 1px solid var(--line); border-radius: .3rem; }
+@media(max-width:600px) { .account-list article button { width: 100%; } .account-search div { flex-wrap: wrap; } }
+.signed-in-account { display: block; padding: .7rem .8rem; color: var(--nav-text); font-size: .85rem; overflow-wrap: anywhere; }
+.site-head .mobile-menu .signed-in-account { grid-column: 1 / -1; text-align: center; }

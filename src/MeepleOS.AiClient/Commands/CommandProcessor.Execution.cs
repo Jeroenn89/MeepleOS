@@ -60,13 +60,17 @@ public sealed partial class CommandProcessor
 
     private async Task<Catalog> ReadCatalog(CancellationToken ct)
     {
+        var me = await tools.CallAsync("get_my_account", ct: ct);
         var games = await tools.CallAsync("get_boardgames", ct: ct);
         var players = await tools.CallAsync("get_players", ct: ct);
         var expansions = await tools.CallAsync("get_game_expansions", ct: ct);
         static List<Item> Read(JsonElement array) => array.EnumerateArray().Select(x => new Item(
             x.GetProperty("id").GetInt32(), x.GetProperty("name").GetString()!,
-            x.TryGetProperty("boardGameId", out var id) ? id.GetInt32() : null)).ToList();
-        return new Catalog(Read(games), Read(players), Read(expansions));
+            x.TryGetProperty("boardGameId", out var id) ? id.GetInt32() : null,
+            !x.TryGetProperty("isOwned", out var owned) || owned.ValueKind == JsonValueKind.True)).ToList();
+        var selfName = me.TryGetProperty("playerName", out var playerName) && playerName.ValueKind == JsonValueKind.String
+            ? playerName.GetString() : null;
+        return new Catalog(Read(games), Read(players), Read(expansions), selfName);
     }
 
     private static Item? Find(List<Item> list, string? name) => list.FirstOrDefault(x =>
@@ -99,6 +103,8 @@ public sealed partial class CommandProcessor
                         games.Add(new Item(0, a.Name!.Trim()));
                     }
                     break;
+                case "add_to_collection":
+                    RequireName(a.Name); RequireGame(games, a.Name); break;
                 case "add_expansion":
                     RequireName(a.Name); RequireGame(games, a.Boardgame);
                     if (!expansions.Any(x => x.Name.Equals(a.Name, StringComparison.OrdinalIgnoreCase) && x.BoardGameId == Find(games, a.Boardgame)!.Id)) expansions.Add(new Item(0, a.Name!.Trim(), Find(games, a.Boardgame)!.Id));
@@ -155,6 +161,14 @@ public sealed partial class CommandProcessor
                 result = await tools.CallAsync("add_boardgame", new { name = a.Name!.Trim(), minPlayers = a.MinPlayers, maxPlayers = a.NoMaximum ? null : a.MaxPlayers, estimatedMinutes = a.EstimatedMinutes }, ct);
                 catalog.Boardgames.Add(new Item(result.GetProperty("id").GetInt32(), result.GetProperty("name").GetString()!));
                 return $"Bordspel {a.Name} toegevoegd.";
+            case "add_to_collection":
+                var collectionGame = Find(catalog.Boardgames, a.Name)!;
+                if (collectionGame.IsOwned) return $"{collectionGame.Name} staat al in je collectie.";
+                if (collectionGame.CatalogOnly)
+                    await tools.CallAsync("add_existing_boardgame_to_collection", new { name = collectionGame.Name }, ct);
+                else
+                    await tools.CallAsync("add_boardgame_to_collection", new { id = collectionGame.Id }, ct);
+                return $"{collectionGame.Name} aan je collectie toegevoegd.";
             case "add_expansion":
                 var game = Find(catalog.Boardgames, a.Boardgame)!;
                 if (catalog.Expansions.Any(x => x.BoardGameId == game.Id && x.Name.Equals(a.Name, StringComparison.OrdinalIgnoreCase))) return $"Uitbreiding {a.Name} bestaat al.";
