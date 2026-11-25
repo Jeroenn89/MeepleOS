@@ -14,7 +14,7 @@ public sealed class McpTools : IMeepleTools, IAsyncDisposable
     private McpTools(McpClient client, bool readOnly, string temporaryServerDirectory)
     { this.client = client; this.readOnly = readOnly; this.temporaryServerDirectory = temporaryServerDirectory; }
 
-    public static async Task<McpTools> ConnectAsync(string root, bool readOnly = false, CancellationToken ct = default, string? databasePath = null, string? authToken = null)
+    public static async Task<McpTools> ConnectAsync(string root, bool readOnly = false, CancellationToken ct = default, string? databasePath = null, string? authToken = null, Guid? requestId = null)
     {
 #if DEBUG
         const string configuration = "Debug";
@@ -43,7 +43,8 @@ public sealed class McpTools : IMeepleTools, IAsyncDisposable
                 InheritEnvironmentVariables = true,
                 EnvironmentVariables = new Dictionary<string, string?> { ["GEMINI_API_KEY"] = null, ["MEEPLEOS_READ_ONLY"] = readOnly ? "1" : "0",
                     ["MEEPLEOS_DB_PATH"] = databasePath ?? Environment.GetEnvironmentVariable("MEEPLEOS_DB_PATH"),
-                    ["MEEPLEOS_AUTH_TOKEN"] = authToken ?? Environment.GetEnvironmentVariable("MEEPLEOS_AUTH_TOKEN") }
+                    ["MEEPLEOS_AUTH_TOKEN"] = authToken ?? Environment.GetEnvironmentVariable("MEEPLEOS_AUTH_TOKEN"),
+                    ["MEEPLEOS_ACTIVITY_REQUEST_ID"] = requestId?.ToString("D") }
             });
             return new McpTools(await McpClient.CreateAsync(transport, cancellationToken: ct), readOnly, temporaryDirectory);
         }

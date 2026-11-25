@@ -90,9 +90,13 @@ public partial class Manage
 
     private void StartNewGame()
     {
+        var newName = editGameId == 0 ? editGameSearch.Trim() : "";
         editGameSearch = "";
         editGameId = 0;
         LoadGame();
+        gameName = newName;
+        openSection = 0;
+        error = "";
     }
 
     private void SearchExpansionGame(ChangeEventArgs eventArgs)
@@ -256,19 +260,32 @@ public partial class Manage
             CancelDelete();
     }
 
-    private async Task Run(Func<Task> action, string successMessage = "Opgeslagen.")
+    private async Task Run(Func<Task> action, string operation, object? parameters,
+        string successMessage = "Opgeslagen.")
     {
         error = "";
         message = "";
+        string accountId;
         try
         {
+            accountId = await AccountContext.GetAccountIdAsync();
             await action();
-            await Reload();
-            message = successMessage;
         }
         catch (Exception exception)
         {
+            if (await TryAccountId() is { } failedAccount)
+                await ActivityLog.LogAsync(failedAccount, operation, parameters, "Failed", exception.GetType().Name);
             error = exception.Message;
+            return;
+        }
+        await ActivityLog.LogAsync(accountId, operation, parameters);
+        try { await Reload(); message = successMessage; }
+        catch (Exception exception) { error = exception.Message; }
+
+        async Task<string?> TryAccountId()
+        {
+            try { return await AccountContext.GetAccountIdAsync(); }
+            catch { return null; }
         }
     }
     private Task SaveGame() => Run(async () =>
@@ -288,7 +305,9 @@ public partial class Manage
             });
             await GameService.UpdateAsync(editGameId, changes);
         }
-    });
+    }, editGameId == 0 ? "add_boardgame" : "update_boardgame",
+        new { id = editGameId == 0 ? (int?)null : editGameId, name = gameName,
+            minPlayers, maxPlayers, estimatedMinutes = duration });
 
     private Task SaveExpansion() => Run(async () =>
     {
@@ -305,7 +324,9 @@ public partial class Manage
             });
             await ExpansionService.UpdateAsync(editExpansionId, changes);
         }
-    });
+    }, editExpansionId == 0 ? "add_game_expansion" : "update_game_expansion",
+        new { id = editExpansionId == 0 ? (int?)null : editExpansionId,
+            boardGameId = expansionGameId, name = expansionName, description = expansionDescription });
 
     private Task SavePlayer() => Run(async () =>
     {
@@ -313,7 +334,8 @@ public partial class Manage
             await PlayerService.AddAsync(playerName);
         else
             await PlayerService.UpdateAsync(editPlayerId, playerName);
-    });
+    }, editPlayerId == 0 ? "add_player" : "update_player",
+        new { id = editPlayerId == 0 ? (int?)null : editPlayerId, name = playerName });
 
     private Task SaveSession() => Run(async () =>
     {
@@ -339,7 +361,12 @@ public partial class Manage
             }, new JsonSerializerOptions(JsonSerializerDefaults.Web));
             await SessionService.UpdateAsync(editSessionId, changes);
         }
-    });
+    }, editSessionId == 0 ? "record_game_session" : "update_game_session",
+        new { id = editSessionId == 0 ? (int?)null : editSessionId, boardGameId = sessionGameId,
+            playedAt = DateOnly.FromDateTime(sessionDate).ToString("yyyy-MM-dd"),
+            players = rows.Select(row => new { playerId = row.Id, score = row.Score, position = row.Position }).ToArray(),
+            winnerPlayerIds = rows.Where(row => row.Winner).Select(row => row.Id).ToArray(),
+            notes, expansionIds = selectedExpansionIds.ToArray() });
 
     private async Task Delete()
     {
@@ -350,26 +377,26 @@ public partial class Manage
             switch (kind)
             {
                 case "game":
-                    await GameService.DeleteAsync(deleteId);
+                    if (!await GameService.DeleteAsync(deleteId)) throw new InvalidOperationException("Bordspel niet gevonden.");
                     StartNewGame();
                     break;
                 case "expansion":
-                    await ExpansionService.DeleteAsync(deleteId);
+                    if (!await ExpansionService.DeleteAsync(deleteId)) throw new InvalidOperationException("Uitbreiding niet gevonden.");
                     editExpansionId = 0;
                     LoadExpansion();
                     break;
                 case "player":
-                    await PlayerService.DeleteAsync(deleteId);
+                    if (!await PlayerService.DeleteAsync(deleteId)) throw new InvalidOperationException("Speler niet gevonden.");
                     editPlayerId = 0;
                     LoadPlayer();
                     break;
                 case "session":
-                    await SessionService.DeleteAsync(deleteId);
+                    if (!await SessionService.DeleteAsync(deleteId)) throw new InvalidOperationException("Potje niet gevonden.");
                     editSessionId = 0;
                     LoadSession();
                     break;
             }
-        }, "Verwijderd.");
+        }, "delete_" + kind, new { id = deleteId, kind }, "Verwijderd.");
     }
 
     private sealed class ParticipantRow(int id, string name)

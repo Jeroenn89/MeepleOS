@@ -3,6 +3,8 @@
 @inject GameExpansionService ExpansionService
 @inject PlayerService PlayerService
 @inject GameSessionService SessionService
+@inject ManualActivityLogger ActivityLog
+@inject IAccountContext AccountContext
 <PageTitle>Toevoegen en bewerken · MeepleOS</PageTitle>
 <h1>Toevoegen en bewerken</h1>
 <div class="manage-page">
@@ -18,7 +20,7 @@
     <button type="button" class="manage-section-toggle" aria-expanded="@(openSection == 0)" @onclick="() => OpenSection(0)"><span class="manage-section-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8" cy="8" r=".8" fill="currentColor" stroke="none"/><circle cx="16" cy="8" r=".8" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r=".8" fill="currentColor" stroke="none"/><circle cx="8" cy="16" r=".8" fill="currentColor" stroke="none"/><circle cx="16" cy="16" r=".8" fill="currentColor" stroke="none"/></svg></span><span class="manage-summary-text"><strong>Bordspel</strong><small>Naam, spelersaantal en speelduur</small></span></button>
     <div class="manage-section-content" inert="@(openSection != 0)"><div class="manage-section-content-inner">
     <div class="manage-existing">
-        <div class="manage-block-heading"><h2>Nieuw of bestaand</h2><p>Typ een naam en kies een bestaand bordspel uit de suggesties.</p></div>
+        <div class="manage-block-heading"><h2>Nieuw of bestaand</h2><p>Zoek hier een bestaand bordspel om te bewerken. Voor een nieuw spel vul je de spelgegevens hieronder in en klik je op opslaan.</p></div>
         <div class="manage-select-row">
         <label>
             Bestaand bordspel
@@ -37,11 +39,14 @@
                 }
             </div>
         }
-        <button type="button" class="secondary manage-new-button" @onclick="StartNewGame">Nieuw bordspel toevoegen</button>
+        @if (editGameId > 0 || !string.IsNullOrWhiteSpace(editGameSearch))
+        {
+            <button type="button" class="secondary manage-new-button" @onclick="StartNewGame">Nieuw bordspel invoeren</button>
+        }
         </div>
     </div>
     <div class="manage-fields">
-        <div class="manage-block-heading"><h2>Spelgegevens</h2></div>
+        <div class="manage-block-heading"><h2>@(editGameId == 0 ? "Nieuw bordspel" : "Bordspel bewerken")</h2></div>
         <div class="manage-field-grid">
         <label class="manage-field-wide">
             Naam
@@ -62,7 +67,7 @@
         </div>
     </div>
     <div class="manage-actions">
-        <button @onclick="SaveGame">Bordspel opslaan</button>
+        <button @onclick="SaveGame">@(editGameId == 0 ? "Nieuw bordspel opslaan" : "Wijzigingen opslaan")</button>
         @if (editGameId>0)
         {
             <button class="danger" @onclick="ConfirmDeleteGame">Bordspel verwijderen</button>

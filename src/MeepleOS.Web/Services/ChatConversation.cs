@@ -4,12 +4,14 @@ public sealed class ChatExchange(string request)
 {
     public string Request { get; } = request;
     public string? Response { get; private set; }
+    public string? InputExample { get; private set; }
     public int GeminiRequests { get; private set; }
     public int TavilyRequests { get; private set; }
 
-    internal void SetResponse(string response, int geminiRequests, int tavilyRequests)
+    internal void SetResponse(string response, int geminiRequests, int tavilyRequests, string? inputExample)
     {
         Response = response;
+        InputExample = inputExample;
         GeminiRequests = geminiRequests;
         TavilyRequests = tavilyRequests;
     }
@@ -30,12 +32,13 @@ public sealed class ChatConversation
         return exchange;
     }
 
-    public void Complete(ChatExchange exchange, string response, int geminiRequests = 0, int tavilyRequests = 0)
+    public void Complete(ChatExchange exchange, string response, int geminiRequests = 0, int tavilyRequests = 0,
+        string? inputExample = null)
     {
         if (!exchanges.Contains(exchange))
             throw new ArgumentException("Het verzoek hoort niet bij dit gesprek.", nameof(exchange));
 
-        exchange.SetResponse(response, geminiRequests, tavilyRequests);
+        exchange.SetResponse(response, geminiRequests, tavilyRequests, inputExample);
         Changed?.Invoke();
     }
 }

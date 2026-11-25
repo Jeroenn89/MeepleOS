@@ -16,10 +16,10 @@ internal static partial class PlanSafety
         @"(?<!\d)(?<min>\d+)\s*(?:-|–|—|to|tot|t/m)\s*(?<max>\d+)\s*(?:players?|spelers?)\b|\b(?:players?|spelers?)\s*:?\s*(?<min2>\d+)\s*(?:-|–|—|to|tot|t/m)\s*(?<max2>\d+)\b",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex Minimum = new(
-        @"\b(?:minimaal|minimum|min\.?)\s*(?:of\s*)?(?<value>\d+)\s*(?:players?|spelers?)\b",
+        @"\b(?:minimaal|minimum|min\.?)\s*(?:of\s*)?(?<value>\d+)\b",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex Maximum = new(
-        @"\b(?:maximaal|maximum|max\.?)\s*(?:of\s*)?(?<value>\d+)\s*(?:players?|spelers?)\b",
+        @"\b(?:maximaal|maximum|max\.?)\s*(?:of\s*)?(?<value>\d+)\b",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex Duration = new(
         @"\b(?<value>\d+)\s*(?:minutes?|minuten|min\.?)\b",
@@ -36,12 +36,54 @@ internal static partial class PlanSafety
 
     public static IReadOnlyList<string> MissingGameFacts(string command)
     {
-        var range = PlayerRange.Match(command);
+        var facts = UserGameFacts(command);
         var missing = new List<string>();
-        if (!(range.Success || ReadNumber(Minimum, command).HasValue)) missing.Add("minimumaantal spelers");
-        if (!(range.Success || ReadNumber(Maximum, command).HasValue || NoMaximum.IsMatch(command))) missing.Add("maximumaantal spelers");
-        if (!ReadNumber(Duration, command).HasValue) missing.Add("speelduur");
+        if (!facts.MinPlayers.HasValue) missing.Add("minimumaantal spelers");
+        if (!facts.MaxPlayers.HasValue && !facts.NoMaximum) missing.Add("maximumaantal spelers");
+        if (!facts.Minutes.HasValue) missing.Add("speelduur");
         return missing;
+    }
+
+    internal static (int? MinPlayers, int? MaxPlayers, bool NoMaximum, int? Minutes) UserGameFacts(string command)
+    {
+        int? minimum = null, maximum = null, minutes = null;
+        var noMaximum = false;
+        var facts = new List<(int Index, int Kind, Match Match)>();
+        facts.AddRange(PlayerRange.Matches(command).Cast<Match>().Select(match => (match.Index, 0, match)));
+        facts.AddRange(Minimum.Matches(command).Cast<Match>().Select(match => (match.Index, 1, match)));
+        facts.AddRange(Maximum.Matches(command).Cast<Match>().Select(match => (match.Index, 2, match)));
+        facts.AddRange(NoMaximum.Matches(command).Cast<Match>().Select(match => (match.Index, 3, match)));
+        facts.AddRange(Duration.Matches(command).Cast<Match>().Select(match => (match.Index, 4, match)));
+        foreach (var (_, kind, match) in facts.OrderBy(fact => fact.Index))
+        {
+            switch (kind)
+            {
+                case 0:
+                    if (int.TryParse(match.Groups[match.Groups["min"].Success ? "min" : "min2"].Value, out var rangeMin)
+                        && int.TryParse(match.Groups[match.Groups["max"].Success ? "max" : "max2"].Value, out var rangeMax))
+                    {
+                        minimum = rangeMin;
+                        maximum = rangeMax;
+                        noMaximum = false;
+                    }
+                    break;
+                case 1:
+                    if (int.TryParse(match.Groups["value"].Value, out var explicitMin)) minimum = explicitMin;
+                    break;
+                case 2:
+                    if (int.TryParse(match.Groups["value"].Value, out var explicitMax))
+                    {
+                        maximum = explicitMax;
+                        noMaximum = false;
+                    }
+                    break;
+                case 3: maximum = null; noMaximum = true; break;
+                case 4:
+                    if (int.TryParse(match.Groups["value"].Value, out var explicitMinutes)) minutes = explicitMinutes;
+                    break;
+            }
+        }
+        return (minimum, maximum, noMaximum, minutes);
     }
 
     public static Plan Prepare(Plan plan, Catalog catalog, string command, bool readOnly,

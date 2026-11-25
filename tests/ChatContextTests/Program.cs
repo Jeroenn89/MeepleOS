@@ -23,7 +23,11 @@ if (args.Contains("--display-tests"))
         && html.Contains("<a href=\"https://boardgamegeek.com/boardgame/1\"")
         && html.Contains(">BoardGameGeek</a>"),
         "Regeleinden en klikbare bronlink blijven behouden");
-    Console.WriteLine("Chatweergave: kort bericht, meerdere regels en bronlink geslaagd.");
+    var displayConversation = new ChatConversation();
+    var question = displayConversation.Begin("Voeg een spel toe");
+    displayConversation.Complete(question, "Wat is de speelduur?", inputExample: "Bijvoorbeeld: 60 minuten");
+    Check(question.InputExample == "Bijvoorbeeld: 60 minuten", "Invoervoorbeeld blijft bij de juiste vraag");
+    Console.WriteLine("Chatweergave: bericht, bronlink en invoervoorbeeld geslaagd.");
     return;
 }
 

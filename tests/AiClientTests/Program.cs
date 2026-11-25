@@ -38,6 +38,11 @@ if (args.Contains("--source-tests", StringComparer.OrdinalIgnoreCase))
     await RunSourceTests(includeMcp: true);
     return;
 }
+if (args.Contains("--pending-facts-tests", StringComparer.OrdinalIgnoreCase))
+{
+    await RunPendingFactsTests();
+    return;
+}
 if (args.Contains("--source-unit-tests", StringComparer.OrdinalIgnoreCase))
 {
     await RunSourceTests(includeMcp: false);
@@ -1170,17 +1175,18 @@ async Task RunClarificationTests()
         var handler = new ScriptedTavilyHandler(query => query.Contains("/2")
             ? [new GameSearchHit("Dune (2019) | BoardGameGeek", "https://boardgamegeek.com/boardgame/2/dune",
                 "2-6 Players. Play Time: 30 Min.")]
-            : query.Contains("\"Dune\"") ? editions
+            : query.Contains("Dune", StringComparison.OrdinalIgnoreCase) ? editions
             : [editions[0]]);
         using var http = new HttpClient(handler);
         var search = new TavilyGameSearch(http, "mock-key");
         var tools = new FakeTools();
+        var clarificationTrace = new List<string>();
         var first = new CommandProcessor(tools,
             new SequencePlanner(new Plan { Actions = [Session("Dune", ["Jeroen", "Pallas"], ["Jeroen"])] }),
-            gameSearch: search);
+            gameSearch: search, onTrace: clarificationTrace.Add);
         var question = await first.RunAsync("Ik speelde Dune met Pallas; ik won.", date);
         if (!question.Message.Contains("Welke editie") || first.PendingChoices.Count != 2)
-            throw new Exception($"BGG-opties werden niet bewaard: {question.Message}");
+            throw new Exception($"BGG-opties werden niet bewaard: {question.Message}; {string.Join(" | ", clarificationTrace)}");
         var next = new CommandProcessor(tools,
             new SequencePlanner(new Plan { GameChoice = "2", Actions = [Session("Dune", ["Jeroen", "Pallas"], ["Jeroen"])] }),
             pendingCommand: first.PendingCommand, gameSearch: search, pendingQuestion: first.PendingQuestion,
@@ -1221,7 +1227,7 @@ async Task RunClarificationTests()
             pendingCommand: "Ik speelde Dune met Pallas; ik won.", gameSearch: new TavilyGameSearch(http, "mock-key"),
             pendingQuestion: "Welke editie van Dune bedoel je?", pendingChoices: editions, pendingSearchName: "Dune");
         var result = await processor.RunAsync("geen van deze", date);
-        if (!handler.Queries[0].Contains("other edition")
+        if (!handler.Queries.Any(query => query.Contains("other edition"))
             || tools.LastBoardgame?.GetProperty("name").GetString() != "Dune: Imperium"
             || !result.Message.Contains("geregistreerd"))
             throw new Exception($"Afgewezen edities zijn herhaald: {result.Message}");
@@ -1329,6 +1335,105 @@ async Task RunSearchTests()
     }
 
     Console.WriteLine($"{count} gerichte zoektests geslaagd.");
+}
+
+async Task RunPendingFactsTests()
+{
+    var today = new DateOnly(2026, 11, 25);
+    const string original = "Ik heb vandaag Thessaloniki gespeeld met Jeroen en Klaas. Ik won.";
+    ActionPlan Potje() => new()
+    {
+        Kind = "record_session", Boardgame = "Thessaloniki", PlayedAt = today.ToString("yyyy-MM-dd"),
+        Players = [new() { Name = "Jeroen" }, new() { Name = "Klaas" }], Winners = ["Jeroen"]
+    };
+    void Verify(FakeTools tools, CommandResult result, int minimum, int maximum, int minutes)
+    {
+        if (!result.Message.Contains("geregistreerd") || tools.Calls.Count(call => call == "add_boardgame") != 1
+            || tools.Calls.Count(call => call == "add_player") != 1
+            || tools.Calls.Count(call => call == "record_game_session") != 1
+            || tools.LastBoardgame?.GetProperty("name").GetString() != "Thessaloniki"
+            || tools.LastBoardgame?.GetProperty("minPlayers").GetInt32() != minimum
+            || tools.LastBoardgame?.GetProperty("maxPlayers").GetInt32() != maximum
+            || tools.LastBoardgame?.GetProperty("estimatedMinutes").GetInt32() != minutes
+            || tools.LastRecord?.GetProperty("playedAt").GetString() != today.ToString("yyyy-MM-dd")
+            || tools.LastRecord?.GetProperty("players").GetArrayLength() != 2
+            || tools.LastRecord?.GetProperty("winnerPlayerIds")[0].GetInt32() != 2)
+            throw new Exception($"Thessaloniki-registratie is onvolledig: {result.Message}");
+    }
+
+    {
+        var tools = new FakeTools();
+        var search = new FakeGameSearch();
+        var planner = new SequencePlanner(
+            new Plan { Question = "Hoeveel spelers kunnen meedoen en hoelang duurt het spel?" },
+            new Plan { Question = "Hoeveel spelers kunnen meedoen en hoelang duurt het spel?" },
+            new Plan { Actions = [Potje()] });
+        var processor = new CommandProcessor(tools, planner, gameSearch: search);
+        var first = await processor.RunAsync(original, today);
+        var second = await processor.RunAsync("2 tot 5 spelers en ongeveer 60 minuten.", today);
+        if (!first.Message.Contains("Hoeveel spelers")
+            || first.InputExample != "Bijvoorbeeld: 2–5 spelers, 60 minuten"
+            || search.Calls != 0 || processor.PendingCommand is not null
+            || !planner.Commands[1].Contains(original))
+            throw new Exception($"Korte aanvulling of herhaalde Gemini-vraag is niet verwerkt: {first.Message} / {second.Message}");
+        Verify(tools, second, 2, 5, 60);
+    }
+    {
+        var tools = new FakeTools();
+        var planner = new SequencePlanner(new Plan
+            { Question = "Hoeveel spelers kunnen meedoen en hoelang duurt het spel?" });
+        var result = await new CommandProcessor(tools, planner)
+            .RunAsync(original + " 2 tot 5 spelers.", today);
+        if (result.Message.Contains("hoeveel spelers", StringComparison.OrdinalIgnoreCase)
+            || !result.Message.Contains("speelduur")
+            || result.InputExample != "Bijvoorbeeld: 60 minuten")
+            throw new Exception($"Alleen de ontbrekende speelduur moet worden gevraagd: {result.Message}");
+    }
+    {
+        var tools = new FakeTools();
+        var search = new FakeGameSearch();
+        var planner = new SequencePlanner(
+            new Plan { Actions = [Potje()] },
+            new Plan { Question = "Wat zijn het minimumaantal spelers, maximumaantal spelers en de speelduur?",
+                Actions = [new() { Kind = "add_boardgame", Name = "Thessaloniki" }] });
+        var processor = new CommandProcessor(tools, planner, gameSearch: search);
+        var first = await processor.RunAsync(original, today);
+        var continued = new CommandProcessor(tools, planner, gameSearch: search,
+            pendingCommand: processor.PendingCommand, pendingQuestion: processor.PendingQuestion,
+            pendingActions: processor.PendingActions);
+        var second = await continued.RunAsync("minimaal 2, maximaal 5 en 60 minuten", today);
+        if (continued.PendingCommand is not null || search.Calls != 1 || !first.Message.Contains("minimumaantal"))
+            throw new Exception($"Het bestaande potje of de bronzoekstrategie ging verloren: {first.Message} / {second.Message}");
+        Verify(tools, second, 2, 5, 60);
+    }
+    {
+        var tools = new FakeTools();
+        var planner = new SequencePlanner(new Plan { Question = "Hoeveel spelers kunnen meedoen en hoelang duurt het spel?" },
+            new Plan { Actions = [Potje()] });
+        var processor = new CommandProcessor(tools, planner);
+        await processor.RunAsync(original, today);
+        var result = await processor.RunAsync(original + " Minimaal 2, maximaal 5 spelers; 60 minuten.", today);
+        Verify(tools, result, 2, 5, 60);
+    }
+    {
+        var tools = new FakeTools();
+        var search = new FakeGameSearch();
+        var planner = new SequencePlanner(new Plan { Actions = [Potje()] });
+        var result = await new CommandProcessor(tools, planner, gameSearch: search)
+            .RunAsync(original + " Minimaal 2, maximaal 5 spelers; ongeveer 60 minuten.", today);
+        if (search.Calls != 0 || planner.RequestCount != 1) throw new Exception("Volledige gebruikersgegevens veroorzaakten Tavily of extra planning.");
+        Verify(tools, result, 2, 5, 60);
+    }
+    {
+        var tools = new FakeTools();
+        var planner = new SequencePlanner(new Plan { Actions = [Potje()] }, new Plan { Actions = [Potje()] }, new Plan { Actions = [Potje()] });
+        var processor = new CommandProcessor(tools, planner);
+        await processor.RunAsync(original + " 2 tot 5 spelers.", today);
+        await processor.RunAsync("Correctie: maximaal 6 spelers.", today);
+        var result = await processor.RunAsync("60 minuten.", today);
+        Verify(tools, result, 2, 6, 60);
+    }
+    Console.WriteLine("PendingFacts: aanvulling, korte antwoorden, correctie, bronkeuze en complete registratie geslaagd.");
 }
 
 async Task RunSourceTests(bool includeMcp)

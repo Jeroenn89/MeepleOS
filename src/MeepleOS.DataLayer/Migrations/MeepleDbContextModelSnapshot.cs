@@ -62,6 +62,59 @@ namespace MeepleOS.DataLayer.Migrations
                     b.ToTable("AccountPlayers");
                 });
 
+            modelBuilder.Entity("MeepleOS.DataLayer.Data.Models.ActivityLog", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("AccountId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("AccountName")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("AccountReferenceId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ErrorMessage")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Parameters")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("RequestId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ToolName")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AccountReferenceId");
+
+                    b.HasIndex("AccountId", "CreatedAt");
+
+                    b.HasIndex("CreatedAt", "Id");
+
+                    b.HasIndex("RequestId", "AccountId");
+
+                    b.HasIndex("ToolName", "CreatedAt");
+
+                    b.ToTable("ActivityLogs");
+                });
+
             modelBuilder.Entity("MeepleOS.DataLayer.Data.Models.Boardgame", b =>
                 {
                     b.Property<int>("Id")
@@ -468,6 +521,16 @@ namespace MeepleOS.DataLayer.Migrations
                     b.Navigation("Account");
 
                     b.Navigation("Player");
+                });
+
+            modelBuilder.Entity("MeepleOS.DataLayer.Data.Models.ActivityLog", b =>
+                {
+                    b.HasOne("MeepleOS.DataLayer.Data.Models.MeepleUser", "Account")
+                        .WithMany()
+                        .HasForeignKey("AccountReferenceId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Account");
                 });
 
             modelBuilder.Entity("MeepleOS.DataLayer.Data.Models.GameExpansion", b =>

@@ -7,6 +7,7 @@ namespace MeepleOS.DataLayer.Data.Context;
 public sealed class MeepleDbContext(DbContextOptions<MeepleDbContext> options) : IdentityDbContext<MeepleUser>(options)
 {
     public DbSet<AccountBoardgame> AccountBoardgames => Set<AccountBoardgame>();
+    public DbSet<ActivityLog> ActivityLogs => Set<ActivityLog>();
     public DbSet<AccountPlayer> AccountPlayers => Set<AccountPlayer>();
     public DbSet<AccountGameSession> AccountGameSessions => Set<AccountGameSession>();
     public DbSet<Boardgame> Boardgames => Set<Boardgame>();
@@ -19,6 +20,14 @@ public sealed class MeepleDbContext(DbContextOptions<MeepleDbContext> options) :
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+        modelBuilder.Entity<ActivityLog>().HasOne(x => x.Account).WithMany()
+            .HasForeignKey(x => x.AccountReferenceId).OnDelete(DeleteBehavior.SetNull);
+        modelBuilder.Entity<ActivityLog>().Property(x => x.CreatedAt)
+            .HasConversion(value => value.ToUniversalTime(), value => DateTime.SpecifyKind(value, DateTimeKind.Utc));
+        modelBuilder.Entity<ActivityLog>().HasIndex(x => new { x.CreatedAt, x.Id });
+        modelBuilder.Entity<ActivityLog>().HasIndex(x => new { x.AccountId, x.CreatedAt });
+        modelBuilder.Entity<ActivityLog>().HasIndex(x => new { x.ToolName, x.CreatedAt });
+        modelBuilder.Entity<ActivityLog>().HasIndex(x => new { x.RequestId, x.AccountId });
         modelBuilder.Entity<AccountBoardgame>().HasKey(x => new { x.AccountId, x.BoardGameId });
         modelBuilder.Entity<AccountBoardgame>().HasOne(x => x.Account).WithMany().HasForeignKey(x => x.AccountId).OnDelete(DeleteBehavior.Cascade);
         modelBuilder.Entity<AccountBoardgame>().HasOne(x => x.BoardGame).WithMany().HasForeignKey(x => x.BoardGameId).OnDelete(DeleteBehavior.Restrict);

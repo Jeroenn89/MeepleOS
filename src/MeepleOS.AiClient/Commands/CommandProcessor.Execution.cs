@@ -5,19 +5,38 @@ namespace MeepleOS.AiClient;
 public sealed partial class CommandProcessor
 {
     private async Task<CommandResult> FinishAsync(string fullCommand, Plan plan, Catalog catalog,
-        IReadOnlyList<GameSearchHit> searchHits, string? verifiedGameName, int countBefore,
+        IReadOnlyList<GameSearchHit> searchHits, string? verifiedGameName, DateOnly today, int countBefore,
         List<string> completed, CancellationToken ct)
     {
         var count = (planner as IRequestCounter)?.RequestCount - countBefore ?? 1;
+        if (RegistrationIntent.IsMatch(fullCommand) && plan.Actions is { Count: > 0 })
+            PendingActions = plan.Actions.Select(Clone).ToArray();
+        if (!string.IsNullOrWhiteSpace(plan.Question) && MissingFactsQuestion.IsMatch(plan.Question)
+            && !PlanSafety.NeedsGameFacts(fullCommand))
+        {
+            if (plan.Actions is null || !plan.Actions.Any(action => action.Kind is "add_boardgame" or "record_session"))
+            {
+                var facts = PlanSafety.UserGameFacts(fullCommand);
+                plan = await planner.PlanAsync($"{fullCommand}{Environment.NewLine}De gebruiker heeft nu alle spelgegevens opgegeven: minimaal {facts.MinPlayers} spelers, "
+                    + $"{(facts.NoMaximum ? "geen vast maximum" : $"maximaal {facts.MaxPlayers} spelers")}, "
+                    + $"{facts.Minutes} minuten. Maak nu het volledige plan voor de oorspronkelijke opdracht, inclusief deelnemers, winnaar en speeldatum. Vraag deze gegevens niet opnieuw.",
+                    catalog, today, ct);
+                MergePendingActions(plan);
+                if (plan.Actions is { Count: > 0 }) PendingActions = plan.Actions.Select(Clone).ToArray();
+            }
+            if (plan.Actions is { Count: > 0 } && plan.Actions.Any(action => action.Kind is "add_boardgame" or "record_session"))
+                plan.Question = null;
+        }
         if (!string.IsNullOrWhiteSpace(plan.Question))
         {
+            plan.Question = NormalizeGameFactQuestion(plan.Question, fullCommand);
             PendingCommand = fullCommand;
             PendingQuestion = plan.Question;
             PendingChoices = [];
             if (BoardgameQuestion.IsMatch(plan.Question) && searchHits.Count > 0)
                 PendingChoices = searchHits.Where(hit => TavilyGameSearch.BggId(hit).HasValue)
                     .GroupBy(TavilyGameSearch.BggId).Select(group => group.First()).ToArray();
-            return new CommandResult(plan.Question!, count);
+            return new CommandResult(plan.Question!, count, GameFactExample(plan.Question!, fullCommand));
         }
 
         if (RegistrationIntent.IsMatch(fullCommand) && plan.Actions is { Count: > 0 }
@@ -45,6 +64,7 @@ public sealed partial class CommandProcessor
         PendingChoices = [];
         PendingSearchName = null;
         RejectedBggIds = [];
+        PendingActions = [];
         if (plan.Actions.Count > 0 && plan.Actions.All(action => ReadKinds.Contains(action.Kind)))
             return new CommandResult(await ReadAnswer.AnswerAsync(fullCommand, plan.Actions, catalog, tools, ct), count);
         foreach (var action in plan.Actions)

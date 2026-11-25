@@ -61,6 +61,7 @@ builder.Services.AddScoped<PlayerService>();
 builder.Services.AddScoped<GameSessionService>();
 builder.Services.AddScoped<StatisticsService>();
 builder.Services.AddScoped<ChatService>();
+builder.Services.AddScoped<ManualActivityLogger>();
 builder.Services.AddHttpClient();
 var app = builder.Build();
 try
@@ -125,7 +126,7 @@ app.MapGet("/change-password", (HttpContext context, IAntiforgery antiforgery) =
         """, message);
 }).RequireAuthorization();
 app.MapPost("/change-password", async (HttpContext context, IAntiforgery antiforgery,
-    UserManager<MeepleUser> users, SignInManager<MeepleUser> signIn) =>
+    UserManager<MeepleUser> users, SignInManager<MeepleUser> signIn, ManualActivityLogger activity) =>
 {
     await antiforgery.ValidateRequestAsync(context);
     var form = await context.Request.ReadFormAsync();
@@ -136,6 +137,8 @@ app.MapPost("/change-password", async (HttpContext context, IAntiforgery antifor
     var user = await users.GetUserAsync(context.User);
     if (user is null) return Results.Challenge();
     var result = await users.ChangePasswordAsync(user, current, next);
+    await activity.LogAsync(user.Id, "change_password", new { accountId = user.Id },
+        result.Succeeded ? "Success" : "Failed", result.Succeeded ? null : "IdentityValidationFailed");
     if (!result.Succeeded) return Results.Redirect("/change-password?error=1");
     await signIn.RefreshSignInAsync(user);
     return Results.Redirect("/change-password?changed=1");
@@ -212,6 +215,7 @@ app.MapGet("/accounts", async (HttpContext context, IAntiforgery antiforgery, Me
     var message = context.Request.Query.ContainsKey("created") ? "<p class=\"auth-message auth-success\" role=\"status\">Account aangemaakt.</p>" :
         context.Request.Query.ContainsKey("updated") ? "<p class=\"auth-message auth-success\" role=\"status\">Account bijgewerkt.</p>" :
         context.Request.Query.ContainsKey("error") ? "<p class=\"auth-message auth-error\" role=\"alert\">Accountbewerking mislukt. Controleer de ingevoerde gegevens.</p>" : "";
+    var activityLog = await ActivityLogSection.RenderAsync(db, context.Request.Query);
     return AuthPage.Render("Accounts", "Bekijk en beheer de accounts van MeepleOS.", $$"""
         <details class="account-create"><summary>Nieuw account aanmaken</summary>
         <form method="post" action="/accounts"><input type="hidden" name="__RequestVerificationToken" value="{{token}}">
@@ -224,10 +228,11 @@ app.MapGet("/accounts", async (HttpContext context, IAntiforgery antiforgery, Me
         <div><input id="account-query" type="search" name="q" value="{{searchValue}}" placeholder="Gebruikersnaam"><button type="submit">Zoeken</button></div></form>
         <p class="account-result-count">{{(accountCount == 0 ? "Geen accounts gevonden." : $"Accounts {firstResult}–{lastResult} van {accountCount}")}}</p>
         {{accountRows}}{{pagination}}</div>
+        {{activityLog}}
         """, message, wide: true);
 }).RequireAuthorization("Admin");
 app.MapPost("/accounts", async (HttpContext context, IAntiforgery antiforgery, MeepleDbContext db,
-    UserManager<MeepleUser> users) =>
+    UserManager<MeepleUser> users, ManualActivityLogger activity) =>
 {
     await antiforgery.ValidateRequestAsync(context);
     var form = await context.Request.ReadFormAsync();
@@ -256,10 +261,12 @@ app.MapPost("/accounts", async (HttpContext context, IAntiforgery antiforgery, M
     }
     await db.SaveChangesAsync();
     await transaction.CommitAsync();
+    await activity.LogAsync(users.GetUserId(context.User)!, "create_account",
+        new { accountId = user.Id, username = name, playerId });
     return Results.Redirect("/accounts?created=1");
 }).RequireAuthorization("Admin");
 app.MapPost("/accounts/{id}/rename", async (string id, HttpContext context, IAntiforgery antiforgery,
-    UserManager<MeepleUser> users) =>
+    UserManager<MeepleUser> users, ManualActivityLogger activity) =>
 {
     await antiforgery.ValidateRequestAsync(context);
     var user = await users.FindByIdAsync(id);
@@ -268,10 +275,13 @@ app.MapPost("/accounts/{id}/rename", async (string id, HttpContext context, IAnt
     var name = form["username"].ToString().Trim();
     if (name.Length is < 1 or > 200) return Results.Redirect("/accounts?error=1");
     var result = await users.SetUserNameAsync(user, name);
+    await activity.LogAsync(users.GetUserId(context.User)!, "rename_account",
+        new { accountId = id, username = name }, result.Succeeded ? "Success" : "Failed",
+        result.Succeeded ? null : "IdentityValidationFailed");
     return Results.Redirect(result.Succeeded ? "/accounts?updated=1" : "/accounts?error=1");
 }).RequireAuthorization("Admin");
 app.MapPost("/accounts/{id}/reset-password", async (string id, HttpContext context, IAntiforgery antiforgery,
-    UserManager<MeepleUser> users) =>
+    UserManager<MeepleUser> users, ManualActivityLogger activity) =>
 {
     await antiforgery.ValidateRequestAsync(context);
     var user = await users.FindByIdAsync(id);
@@ -279,10 +289,13 @@ app.MapPost("/accounts/{id}/reset-password", async (string id, HttpContext conte
     var form = await context.Request.ReadFormAsync();
     var token = await users.GeneratePasswordResetTokenAsync(user);
     var result = await users.ResetPasswordAsync(user, token, form["password"].ToString());
+    await activity.LogAsync(users.GetUserId(context.User)!, "reset_password",
+        new { accountId = id }, result.Succeeded ? "Success" : "Failed",
+        result.Succeeded ? null : "IdentityValidationFailed");
     return Results.Redirect(result.Succeeded ? "/accounts?updated=1" : "/accounts?error=1");
 }).RequireAuthorization("Admin");
 app.MapPost("/accounts/{id}/link-player", async (string id, HttpContext context, IAntiforgery antiforgery,
-    MeepleDbContext db) =>
+    MeepleDbContext db, ManualActivityLogger activity) =>
 {
     await antiforgery.ValidateRequestAsync(context);
     var form = await context.Request.ReadFormAsync();
@@ -299,6 +312,8 @@ app.MapPost("/accounts/{id}/link-player", async (string id, HttpContext context,
     await db.Database.ExecuteSqlInterpolatedAsync($"INSERT OR IGNORE INTO AccountGameSessions (AccountId, GameSessionId) SELECT {id}, GameSessionId FROM SessionPlayers WHERE PlayerId = {playerId}");
     await db.Database.ExecuteSqlInterpolatedAsync($"INSERT OR IGNORE INTO AccountPlayers (AccountId, PlayerId) SELECT {id}, other.PlayerId FROM SessionPlayers own JOIN SessionPlayers other ON other.GameSessionId = own.GameSessionId WHERE own.PlayerId = {playerId}");
     await transaction.CommitAsync();
+    await activity.LogAsync(context.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)!.Value,
+        "link_player", new { accountId = id, playerId });
     return Results.Redirect("/accounts?updated=1");
 }).RequireAuthorization("Admin");
 app.MapStaticAssets().AllowAnonymous();

@@ -57,6 +57,8 @@ builder.Services.AddSingleton<StatisticsService>();
 
 // MCP-commando's per categorie.
 var mcp = builder.Services.AddMcpServer().WithStdioServerTransport();
+IServiceProvider? activityServices = null;
+McpActivityLogging.Register(mcp, () => activityServices ?? throw new InvalidOperationException("MCP-host is nog niet gestart."), databasePath);
 mcp.WithTools<BoardgameTools>(); // bordspellen toevoegen, bekijken, wijzigen en verwijderen
 mcp.WithTools<AccountTools>();
 mcp.WithTools<GameExpansionTools>(); // uitbreidingen beheren
@@ -66,6 +68,7 @@ mcp.WithTools<StatisticsTools>(); // vier statistiektools
 
 // Start: maak de database aan of voer openstaande schema-upgrades uit.
 using var host = builder.Build();
+activityServices = host.Services;
 await using (var identityDb = await host.Services.GetRequiredService<IDbContextFactory<MeepleDbContext>>().CreateDbContextAsync())
 {
     if (!await identityDb.Users.AnyAsync(x => x.Id == accountId && x.SecurityStamp == payload.SecurityStamp))

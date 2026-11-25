@@ -39,7 +39,7 @@ public sealed class ParticipantPlan
     public int? Position { get; set; }
 }
 
-public sealed record CommandResult(string Message, int GeminiRequests);
+public sealed record CommandResult(string Message, int GeminiRequests, string? InputExample = null);
 
 public interface IMeepleTools
 {

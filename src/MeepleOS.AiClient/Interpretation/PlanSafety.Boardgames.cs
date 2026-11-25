@@ -18,11 +18,11 @@ internal static partial class PlanSafety
             throw new ClarificationNeededException("Welk bordspel bedoel je?");
         }
 
-        var range = PlayerRange.Match(command);
-        var minimum = range.Success ? int.Parse(range.Groups[range.Groups["min"].Success ? "min" : "min2"].Value) : ReadNumber(Minimum, command);
-        var maximum = range.Success ? int.Parse(range.Groups[range.Groups["max"].Success ? "max" : "max2"].Value) : ReadNumber(Maximum, command);
-        var noMaximum = NoMaximum.IsMatch(command);
-        var minutes = ReadNumber(Duration, command);
+        var userFacts = UserGameFacts(command);
+        var minimum = userFacts.MinPlayers;
+        var maximum = userFacts.MaxPlayers;
+        var noMaximum = userFacts.NoMaximum;
+        var minutes = userFacts.Minutes;
 
         if (searchHits is { Count: > 0 })
         {
@@ -91,11 +91,5 @@ internal static partial class PlanSafety
 
     private static bool HasExpansion(List<(string? Game, string Name)> expansions, string game, string name) =>
         expansions.Any(expansion => Names.Equals(expansion.Game, game) && Names.Equals(expansion.Name, name));
-
-    private static int? ReadNumber(Regex pattern, string command)
-    {
-        var match = pattern.Match(command);
-        return match.Success && int.TryParse(match.Groups["value"].Value, out var value) ? value : null;
-    }
 
 }

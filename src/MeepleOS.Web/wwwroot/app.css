@@ -41,9 +41,19 @@ html, body {
 
 body {
     margin: 0;
-    background: var(--paper);
+    background-color: var(--paper);
+    background-image: url('/meeple-pattern.svg?v=6');
+    background-repeat: repeat;
+    background-size: 1600px 900px;
     color: var(--ink);
     font-family: var(--font-body);
+}
+
+@media (max-width: 700px) {
+    body {
+        background-image: url('/meeple-pattern-mobile.svg?v=1');
+        background-size: 100% auto;
+    }
 }
 
 a {
@@ -770,6 +780,7 @@ button:hover,.button:hover {
 .chat-message > b, .chat-message-text { display: block; }
 .chat-message > b { margin-bottom: .25rem; color: #78614A; font-family: var(--font-body); font-size: .7rem; letter-spacing: .08em; text-transform: uppercase; }
 .chat-message-text { white-space: pre-wrap; text-align: left; overflow-wrap: anywhere; font-family: var(--font-body); font-size: 1.05rem; line-height: 1.55; }
+.chat-question-example { display: block; margin-top: .35rem; color: #8A8A8A; font-family: var(--font-body); font-size: .82rem; line-height: 1.4; }
 .chat-message.user { margin-left: auto; border-color: #7F888780; transform: rotate(.4deg); }
 .chat-message.user > b { color: #5E6A69; }
 .chat-message.assistant { margin-bottom: 0; transform: rotate(-.3deg); }
@@ -1499,7 +1510,7 @@ button:hover,.button:hover {
 }
 :where(.auth-body) {
     min-height: 100vh;
-    background: var(--paper);
+    background-color: var(--paper);
 }
 
 .auth-header {
@@ -1584,6 +1595,23 @@ button:hover,.button:hover {
 .account-list article button { width: auto; }
 .account-pagination { display: flex; justify-content: space-between; align-items: center; gap: 1rem; margin-top: .5rem; }
 .account-pagination a { padding: .5rem .7rem; border: 1px solid var(--line); border-radius: .3rem; }
+.activity-log { display: grid; gap: .75rem; margin-top: 2.5rem; }
+.activity-log h2 { margin: 0; color: var(--nav); }
+.activity-filters { display: flex; align-items: end; flex-wrap: wrap; gap: .75rem; }
+.activity-filters label { flex: 1 1 10rem; }
+.activity-filters button { width: auto; margin: 0; }
+.activity-log article { padding: .8rem 1rem; border: 1px solid var(--line); border-radius: .3rem; background: var(--surface-soft); }
+.activity-log summary { display: flex; flex-wrap: wrap; gap: .4rem 1rem; cursor: pointer; align-items: baseline; }
+.activity-log summary time { color: var(--muted); }
+.activity-log summary strong { color: var(--nav); }
+.activity-log dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: .4rem 1rem; margin: 1rem 0 0; }
+.activity-log dt { font-weight: 700; }
+.activity-log dd { margin: 0; overflow-wrap: anywhere; }
+.activity-log pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }
+.activity-request-calls { list-style: none; padding: 0; margin: .75rem 0 0; }
+.activity-request-calls > li { padding: .65rem 0 .2rem; border-top: 1px solid var(--line); }
+.activity-status { margin-left: auto; color: #23633a; font-weight: 700; }
+.activity-failed { color: #a33b32; }
 @media(max-width:600px) { .account-list article button { width: 100%; } .account-search div { flex-wrap: wrap; } }
 .signed-in-account { display: block; padding: .7rem .8rem; color: var(--nav-text); font-size: .85rem; overflow-wrap: anywhere; }
 .site-head .mobile-menu .signed-in-account { grid-column: 1 / -1; text-align: center; }

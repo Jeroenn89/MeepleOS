@@ -21,6 +21,10 @@
             <p class="chat-message assistant">
                 <b>MeepleOS</b>
                 <span class="chat-message-text">@RenderMessage(exchange.Response)</span>
+                @if (exchange.InputExample is not null)
+                {
+                    <small class="chat-question-example">@exchange.InputExample</small>
+                }
                 <span class="chat-writing-pencil" aria-hidden="true">✎</span>
             </p>
             <p class="chat-request-counts">Gemini-verzoeken: @exchange.GeminiRequests · Tavily-verzoeken: @exchange.TavilyRequests</p>

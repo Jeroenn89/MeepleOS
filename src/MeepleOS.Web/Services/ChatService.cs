@@ -16,6 +16,7 @@ public sealed class ChatService(WebOptions options, IHttpClientFactory httpFacto
     private IReadOnlyList<GameSearchHit> pendingChoices = [];
     private string? pendingSearchName;
     private IReadOnlyCollection<int> rejectedBggIds = [];
+    private IReadOnlyList<ActionPlan> pendingActions = [];
     private readonly SemaphoreSlim gate = new(1, 1);
 
     public async Task AskAsync(ChatExchange exchange)
@@ -24,16 +25,17 @@ public sealed class ChatService(WebOptions options, IHttpClientFactory httpFacto
         try
         {
             var answer = await AskCoreAsync(exchange.Request);
-            Conversation.Complete(exchange, answer.Message, answer.GeminiRequests, answer.TavilyRequests);
+            Conversation.Complete(exchange, answer.Message, answer.GeminiRequests, answer.TavilyRequests,
+                answer.InputExample);
         }
         finally { gate.Release(); }
     }
 
-    private async Task<(string Message, int GeminiRequests, int TavilyRequests)> AskCoreAsync(string command)
+    private async Task<(string Message, int GeminiRequests, int TavilyRequests, string? InputExample)> AskCoreAsync(string command)
     {
         var key = Environment.GetEnvironmentVariable("GEMINI_API_KEY");
         if (string.IsNullOrWhiteSpace(key))
-            return ("Meeple Companion is niet beschikbaar: GEMINI_API_KEY ontbreekt. Handmatige invoer werkt wel.", 0, 0);
+            return ("Meeple Companion is niet beschikbaar: GEMINI_API_KEY ontbreekt. Handmatige invoer werkt wel.", 0, 0, null);
 
         GeminiPlanner? planner = null;
         TavilyGameSearch? search = null;
@@ -43,7 +45,8 @@ public sealed class ChatService(WebOptions options, IHttpClientFactory httpFacto
             var user = await users.FindByIdAsync(accountId) ?? throw new UnauthorizedAccessException();
             var token = protection.CreateProtector("MeepleOS.McpAccount.v1")
                 .ToTimeLimitedDataProtector().Protect(new McpAuthPayload(accountId, user.SecurityStamp!).Serialize(), TimeSpan.FromMinutes(10));
-            await using var tools = await McpTools.ConnectAsync(options.Root, databasePath: options.DatabasePath, authToken: token);
+            await using var tools = await McpTools.ConnectAsync(options.Root, databasePath: options.DatabasePath,
+                authToken: token, requestId: Guid.NewGuid());
             using var http = httpFactory.CreateClient();
             http.Timeout = TimeSpan.FromSeconds(60);
             var ledger = new RequestLedger(Path.Combine(options.Root, "data", "gemini-requests.json"), 15, 500);
@@ -56,7 +59,7 @@ public sealed class ChatService(WebOptions options, IHttpClientFactory httpFacto
                 onError: error => logger.LogError(error, "AI-chat fout."),
                 onTrace: detail => logger.LogInformation("AI-chat: {Detail}", detail),
                 pendingQuestion: pendingQuestion, pendingChoices: pendingChoices,
-                pendingSearchName: pendingSearchName, rejectedBggIds: rejectedBggIds);
+                pendingSearchName: pendingSearchName, rejectedBggIds: rejectedBggIds, pendingActions: pendingActions);
             var zone = TimeZoneInfo.FindSystemTimeZoneById("Europe/Amsterdam");
             var today = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, zone).DateTime);
             var result = await processor.RunAsync(command, today);
@@ -65,13 +68,14 @@ public sealed class ChatService(WebOptions options, IHttpClientFactory httpFacto
             pendingChoices = processor.PendingChoices;
             pendingSearchName = processor.PendingSearchName;
             rejectedBggIds = processor.RejectedBggIds;
-            return (result.Message, planner.RequestCount, search.RequestCount);
+            pendingActions = processor.PendingActions;
+            return (result.Message, planner.RequestCount, search.RequestCount, result.InputExample);
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "AI-chat kon de opdracht niet afronden.");
             return ("De MCP-server is tijdelijk niet beschikbaar. Je kunt de registratie later in dit gesprek vervolgen.",
-                planner?.RequestCount ?? 0, search?.RequestCount ?? 0);
+                planner?.RequestCount ?? 0, search?.RequestCount ?? 0, null);
         }
     }
 }
