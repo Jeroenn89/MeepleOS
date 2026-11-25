@@ -19,7 +19,7 @@ else
             </time>
             <div>
                 <span class="profile-eyebrow">Gespeeld potje</span>
-                <h1>@session.BoardGameName</h1>
+                <h1><a href="/games/@session.BoardGameId">@session.BoardGameName</a></h1>
                 <p>@session.Players.Count @(session.Players.Count == 1 ? "deelnemer" : "deelnemers") · @session.Players.Count(player => player.IsWinner) @(session.Players.Count(player => player.IsWinner) == 1 ? "winnaar" : "winnaars")</p>
             </div>
         </div>

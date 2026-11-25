@@ -920,6 +920,8 @@ button:hover,.button:hover {
 .session-detail-date { display: grid; place-content: center; width: 76px; height: 76px; flex: none; border-radius: .65rem; background: var(--accent-light); color: var(--nav); text-align: center; }
 .session-detail-date strong { font-size: 1.85rem; line-height: 1; }
 .session-detail-date span { margin-top: .25rem; font-size: .72rem; font-weight: 800; }
+.session-detail-hero h1 a { color: inherit; text-decoration: underline; text-decoration-color: var(--accent-light); text-underline-offset: .12em; }
+.session-detail-hero h1 a:hover { text-decoration-color: currentColor; }
 .session-detail-grid { margin-top: 1rem; }
 .session-detail-players { display: grid; }
 .session-detail-player { display: flex; align-items: center; gap: .5rem 1rem; flex-wrap: wrap; padding: .85rem .2rem; border-top: 1px solid var(--line-soft); }
@@ -1034,6 +1036,8 @@ button:hover,.button:hover {
 .dashboard-metrics .playtime-metric { gap: .8rem; }
 .dashboard-metrics .playtime-unit-switch { position: absolute; bottom: .7rem; left: 50%; transform: translateX(-50%); }
 .playtime-metric strong { white-space: nowrap; }
+.playtime-metric strong.playtime-long { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+.dashboard-metrics .playtime-metric strong.playtime-long { font-size: clamp(1.2rem, 2vw, 2rem); line-height: 1.15; }
 .playtime-unit-switch { display: inline-flex; padding: .2rem; border-radius: .5rem; background: var(--surface-deep); }
 .playtime-unit-switch button {
     min-height: 30px;
