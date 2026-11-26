@@ -1619,3 +1619,97 @@ button:hover,.button:hover {
 @media(max-width:600px) { .account-list article button { width: 100%; } .account-search div { flex-wrap: wrap; } }
 .signed-in-account { display: block; padding: .7rem .8rem; color: var(--nav-text); font-size: .85rem; overflow-wrap: anywhere; }
 .site-head .mobile-menu .signed-in-account { grid-column: 1 / -1; text-align: center; }
+
+/* Accounts admin dashboard */
+.admin-body { padding: clamp(.6rem, 1.2vw, 1rem); }
+.admin-shell { width: min(100%, 1440px); min-height: calc(100vh - 2rem); margin: 0 auto; padding: clamp(1.4rem, 3vw, 2.7rem); border: 1px solid var(--gold); border-top: 4px solid var(--gold); border-radius: .8rem; background: #fff8ebeb; box-shadow: 0 12px 35px #533c291f; }
+.admin-back { display: inline-block; margin-bottom: 2rem; color: var(--accent-strong); font-size: .95rem; text-underline-offset: .2rem; }
+.admin-title { display: flex; align-items: center; gap: 1.3rem; margin-bottom: 2rem; }
+.admin-title-icon, .admin-tile-icon { display: grid; place-items: center; flex: none; color: var(--accent); background: linear-gradient(135deg,#f9e9cb,#f3d5a0); border-radius: .8rem; }
+.admin-title-icon { width: 5rem; height: 5rem; font-size: 2.5rem; }
+.admin-title h1 { margin: 0; font: 400 clamp(2.4rem,4vw,3.5rem)/1 var(--font-display); color: var(--ink); }
+.admin-title p { margin: .45rem 0 0; color: var(--muted); font-size: 1.1rem; }
+.admin-tabs { display: flex; gap: .7rem; border-bottom: 1px solid var(--accent-strong); margin-bottom: 2.4rem; }
+.admin-tabs a { display: inline-flex; align-items: center; gap: .6rem; padding: .9rem 1.5rem; border: 1px solid var(--line-soft); border-bottom: 0; border-radius: .65rem .65rem 0 0; color: var(--ink); text-decoration: none; font-weight: 700; }
+.admin-tabs a.active { background: linear-gradient(130deg,#96662f,#754816); color: #fff8eb; border-color: var(--accent-strong); }
+.admin-tabs a:hover:not(.active) { background: var(--surface-deep); text-decoration: none; }
+.admin-grid { display: grid; grid-template-columns: minmax(0,2.1fr) minmax(300px,1fr); align-items: start; gap: 1.7rem; }
+.admin-primary { min-width: 0; }
+.admin-body .account-create, .admin-activity-card { border: 1px solid var(--line); border-radius: .75rem; background: #fffaf1d9; box-shadow: 0 9px 18px #67452319; }
+.admin-body .account-create { padding: 0; }
+.admin-body .account-create summary { display: flex; align-items: center; gap: 1.2rem; padding: 1.3rem; list-style: none; }
+.admin-body .account-create summary::-webkit-details-marker { display: none; }
+.admin-body .account-create summary:hover { background: #f8ebd4; border-radius: .75rem; }
+.admin-tile-icon { width: 4.2rem; height: 4.2rem; font-size: 2rem; }
+.account-create-copy { display: grid; gap: .25rem; min-width: 0; border-left: 1px solid var(--line); padding-left: 1rem; }
+.account-create-copy strong { font-size: 1.25rem; color: var(--ink); }
+.account-create-copy small { color: var(--muted); font-size: .9rem; font-weight: 400; }
+.account-create-cta, .admin-log-link { display: inline-flex; align-items: center; justify-content: center; gap: .4rem; padding: .8rem 1.1rem; border: 0; border-radius: .55rem; background: linear-gradient(130deg,#95632c,#734715); color: #fff8eb; font-weight: 700; text-decoration: none; white-space: nowrap; }
+.account-create-cta { margin-left: auto; font-size: .88rem; }
+.admin-body .account-create form { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 1rem; margin: 0; padding: 1.25rem; border-top: 1px solid var(--line-soft); }
+.admin-body .account-create form label:nth-of-type(3) { grid-column: 1 / -1; }
+.admin-body .account-create form button { width: fit-content; }
+.admin-body .account-list { margin-top: 2.5rem; }
+.account-list-heading { display: flex; align-items: start; justify-content: space-between; gap: 1rem; }
+.admin-body .account-list h2 { font: 400 2rem/1.15 var(--font-display); color: var(--ink); }
+.account-list-heading p { margin: .25rem 0 0; color: var(--muted); }
+.account-count { flex: none; padding: .35rem .85rem; border-radius: 2rem; background: #f2e3cc; font-size: .85rem; }
+.admin-body .account-search { display: grid; grid-template-columns: minmax(0,1fr) minmax(155px,220px) auto; gap: .65rem !important; margin-top: .75rem; padding: 1rem; border: 1px solid var(--line-soft); border-radius: .7rem; background: #f8eddb; }
+.admin-body .account-search input, .admin-body .account-search select { width: 100%; margin: 0; background: #fffbf4; }
+.admin-body .account-search button { width: auto; margin: 0; }
+.admin-body .account-result-count { margin: .1rem 0; }
+.account-rows { display: grid; gap: .8rem; }
+.admin-body .account-list article { padding: 0; border-radius: .7rem; background: #fffaf1; box-shadow: 0 4px 10px #6745230e; }
+.admin-body .account-list article summary { display: flex; align-items: center; gap: 1rem; padding: 1rem 1.2rem; list-style: none; }
+.admin-body .account-list article summary::before { display: none; }
+.admin-body .account-list article summary::-webkit-details-marker { display: none; }
+.admin-body .account-list article summary:hover { background: #f8eddb; border-radius: .7rem; }
+.account-avatar { display: grid; place-items: center; flex: none; width: 3.4rem; height: 3.4rem; border-radius: .6rem; background: #f8e5c4; color: var(--accent); font-size: 1.8rem; }
+.account-identity { display: grid; gap: .15rem; min-width: 0; }
+.admin-body .account-summary-name { color: var(--ink); font-size: 1.15rem; font-weight: 700; }
+.admin-body .account-summary-meta { color: var(--muted); font-size: .85rem; }
+.account-role-badge { margin-left: auto; padding: .35rem .85rem; border-radius: 2rem; background: #f1e7d5; color: var(--ink); font-size: .85rem; font-weight: 500; }
+.account-role-badge.is-admin { background: #f9e6bd; color: #855017; }
+.account-more { font-size: 1.3rem; line-height: 1; letter-spacing: .1em; }
+.admin-body .account-actions { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 1rem; padding: 1.2rem; border-top: 1px solid var(--line-soft); }
+.admin-body .account-actions form { margin: 0; }
+.admin-body .account-actions form button { margin-top: .55rem; }
+.admin-activity-card { padding: 1.3rem; }
+.admin-activity-heading { display: flex; align-items: center; gap: .9rem; padding-bottom: 1.2rem; border-bottom: 1px solid var(--line-soft); }
+.admin-activity-heading h2 { margin: 0; color: var(--ink); font-size: 1.25rem; }
+.admin-activity-heading p { margin: .2rem 0 0; color: var(--muted); font-size: .85rem; }
+.admin-activity-stats { display: grid; gap: .7rem; margin: 1rem 0 1.5rem; }
+.admin-activity-stats > div { display: flex; align-items: center; gap: .7rem; padding: .6rem .7rem; border-radius: .6rem; background: #f8eddb; font-size: .9rem; }
+.admin-activity-stats strong { margin-left: auto; font-size: 1.1rem; }
+.admin-activity-stats .stat-date { font-size: .82rem; white-space: nowrap; }
+.stat-icon { display: grid; place-items: center; flex: none; width: 2rem; height: 2rem; border-radius: .55rem; background: #f2dfc3; color: var(--accent); font-size: 1.3rem; }
+.stat-icon.success { background: #e2edcf; color: #436524; }
+.stat-icon.failure { background: #f9d9ca; color: #b3281c; font-weight: 800; }
+.admin-log-link { width: 100%; }
+.admin-log-link span { margin-left: auto; font-size: 1.3rem; }
+.admin-log-link:hover { color: #fff8eb; text-decoration: none; filter: brightness(1.1); }
+.admin-log-view .activity-log { margin-top: 0; }
+.admin-log-view .activity-log h2 { font: 400 2rem var(--font-display); }
+.admin-log-view .activity-log article { border-radius: .6rem; background: #fffaf1; }
+.visually-hidden { position: absolute !important; width: 1px !important; height: 1px !important; padding: 0 !important; margin: -1px !important; overflow: hidden !important; clip: rect(0,0,0,0) !important; white-space: nowrap !important; border: 0 !important; }
+@media (max-width: 950px) { .admin-grid { grid-template-columns: 1fr; } .admin-activity-card { order: -1; } }
+@media (max-width: 650px) { .admin-shell { padding: 1rem; } .admin-title { gap: .8rem; } .admin-title-icon { width: 3.8rem; height: 3.8rem; } .admin-title p { font-size: .9rem; } .admin-tabs { gap: .3rem; } .admin-tabs a { flex: 1; justify-content: center; padding: .7rem .4rem; font-size: .78rem; text-align: center; } .admin-body .account-create summary { flex-wrap: wrap; } .account-create-copy { flex: 1; } .account-create-cta { width: 100%; } .admin-body .account-create form, .admin-body .account-actions { grid-template-columns: 1fr; } .admin-body .account-search { grid-template-columns: 1fr; } .account-list-heading { flex-wrap: wrap; } .account-role-badge { padding: .25rem .5rem; font-size: .75rem; } }
+.admin-icon-sprite { position: absolute; width: 0; height: 0; overflow: hidden; }
+.admin-body svg:not(.admin-icon-sprite) { display: block; width: 1.25rem; height: 1.25rem; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+.admin-title-icon img { display: block; width: 3.5rem; height: 3.5rem; object-fit: contain; }
+.admin-tile-icon svg { width: 2.2rem !important; height: 2.2rem !important; }
+.admin-tabs svg { width: 1.4rem !important; height: 1.4rem !important; }
+.account-create-cta svg { width: 1.3rem !important; height: 1.3rem !important; }
+.admin-body .account-search .account-search-field, .admin-body .account-search .account-role-field { position: relative; display: block; min-width: 0; }
+.admin-body .account-search .account-search-field svg, .admin-body .account-search .account-role-field svg { position: absolute; left: .8rem; top: 50%; transform: translateY(-50%); width: 1.3rem; height: 1.3rem; pointer-events: none; }
+.admin-body .account-search .account-search-field input, .admin-body .account-search .account-role-field select { height: 100%; padding-left: 2.7rem; }
+.account-avatar svg { width: 2rem !important; height: 2rem !important; }
+.account-role-badge { display: inline-flex; align-items: center; gap: .35rem; }
+.account-role-badge svg { width: 1rem !important; height: 1rem !important; }
+.account-more svg { width: 1.4rem !important; height: 1.4rem !important; }
+.stat-icon svg { width: 1.4rem !important; height: 1.4rem !important; }
+.admin-log-link svg { width: 1.4rem !important; height: 1.4rem !important; }
+.admin-log-link .log-arrow { margin-left: auto; }
+.admin-body .account-search { grid-template-columns: minmax(0,1fr) minmax(155px,220px); }
+@media (max-width: 650px) { .admin-body .account-search { grid-template-columns: 1fr; } }
+@media (max-width: 650px) { .admin-title-icon img { width: 2.8rem; height: 2.8rem; } }

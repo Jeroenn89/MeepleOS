@@ -158,16 +158,25 @@ app.MapGet("/mcp-token", async (HttpContext context, IDataProtectionProvider pro
     context.Response.Headers.CacheControl = "no-store";
     return Results.Text(token);
 }).RequireAuthorization();
-app.MapGet("/accounts", async (HttpContext context, IAntiforgery antiforgery, MeepleDbContext db,
+app.MapGet("/accounts", (HttpContext context) => Results.Redirect("/admin" + context.Request.QueryString.Value))
+    .RequireAuthorization("Admin");
+app.MapGet("/admin", async (HttpContext context, IAntiforgery antiforgery, MeepleDbContext db,
     UserManager<MeepleUser> userManager) =>
 {
     const int pageSize = 20;
     var search = context.Request.Query["q"].ToString().Trim();
     if (search.Length > 200) search = search[..200];
+    var roleFilter = context.Request.Query["role"].ToString();
+    var showActivity = context.Request.Query["tab"] == "activity" ||
+        context.Request.Query.Keys.Any(key => key.StartsWith("log", StringComparison.Ordinal));
     var requestedPage = int.TryParse(context.Request.Query["page"], out var parsedPage) && parsedPage > 0 ? parsedPage : 1;
     var accountQuery = db.Users.AsNoTracking();
     if (search.Length > 0)
         accountQuery = accountQuery.Where(u => u.UserName != null && u.UserName.Contains(search));
+    var adminIds = db.UserRoles.Join(db.Roles.Where(role => role.Name == "Admin"),
+        assignment => assignment.RoleId, role => role.Id, (assignment, role) => assignment.UserId);
+    if (roleFilter == "admin") accountQuery = accountQuery.Where(u => adminIds.Contains(u.Id));
+    if (roleFilter == "user") accountQuery = accountQuery.Where(u => !adminIds.Contains(u.Id));
     var accountCount = await accountQuery.CountAsync();
     var pageCount = Math.Max(1, (int)Math.Ceiling(accountCount / (double)pageSize));
     var page = Math.Min(requestedPage, pageCount);
@@ -176,7 +185,7 @@ app.MapGet("/accounts", async (HttpContext context, IAntiforgery antiforgery, Me
     var players = await db.Players.Where(p => p.AccountId == null)
         .OrderBy(p => p.Name).Select(p => new { p.Id, p.Name }).ToListAsync();
     var options = string.Join("", players.Select(p => $"<option value=\"{p.Id}\">{WebUtility.HtmlEncode(p.Name)}</option>"));
-    var token = WebUtility.HtmlEncode(antiforgery.GetAndStoreTokens(context).RequestToken);
+    var token = WebUtility.HtmlEncode(antiforgery.GetAndStoreTokens(context).RequestToken) ?? "";
     var accountIds = accounts.Select(u => u.Id).ToList();
     var linked = await db.Players.Where(p => p.AccountId != null && accountIds.Contains(p.AccountId))
         .Select(p => new { p.AccountId, p.Name }).ToDictionaryAsync(p => p.AccountId!);
@@ -188,7 +197,7 @@ app.MapGet("/accounts", async (HttpContext context, IAntiforgery antiforgery, Me
         var playerName = linked.TryGetValue(user.Id, out var player) ? WebUtility.HtmlEncode(player.Name) : "Geen speler gekoppeld";
         var role = await userManager.IsInRoleAsync(user, "Admin") ? "Beheerder" : "Gebruiker";
         accountRows.Append($$"""
-            <article><details><summary><span class="account-summary-name">{{name}}</span><span class="account-summary-meta">{{role}} · Speler: {{playerName}}</span></summary><div class="account-actions">
+            <article><details><summary><span class="account-avatar" aria-hidden="true"><svg><use href="#icon-person"/></svg></span><span class="account-identity"><span class="account-summary-name">{{name}}</span><span class="account-summary-meta">{{role}} · Speler: {{playerName}}</span></span><span class="account-role-badge {{(role == "Beheerder" ? "is-admin" : "")}}"><svg aria-hidden="true"><use href="{{(role == "Beheerder" ? "#icon-crown" : "#icon-person")}}"/></svg>{{role}}</span><span class="account-more" aria-hidden="true"><svg><use href="#icon-more"/></svg></span></summary><div class="account-actions">
             <form method="post" action="/accounts/{{id}}/rename"><input type="hidden" name="__RequestVerificationToken" value="{{token}}">
             <label>Gebruikersnaam wijzigen<input name="username" value="{{name}}" required></label><button type="submit">Naam opslaan</button></form>
             <form method="post" action="/accounts/{{id}}/reset-password"><input type="hidden" name="__RequestVerificationToken" value="{{token}}">
@@ -202,7 +211,8 @@ app.MapGet("/accounts", async (HttpContext context, IAntiforgery antiforgery, Me
             """);
     }
     var searchValue = WebUtility.HtmlEncode(search);
-    string PageUrl(int target) => "/accounts?page=" + target + (search.Length > 0 ? "&q=" + Uri.EscapeDataString(search) : "");
+    string PageUrl(int target) => "/admin?page=" + target + (search.Length > 0 ? "&q=" + Uri.EscapeDataString(search) : "")
+        + (roleFilter is "admin" or "user" ? "&role=" + roleFilter : "");
     var firstResult = accountCount == 0 ? 0 : (page - 1) * pageSize + 1;
     var lastResult = Math.Min(page * pageSize, accountCount);
     var pagination = pageCount > 1 ? $$"""
@@ -216,20 +226,22 @@ app.MapGet("/accounts", async (HttpContext context, IAntiforgery antiforgery, Me
         context.Request.Query.ContainsKey("updated") ? "<p class=\"auth-message auth-success\" role=\"status\">Account bijgewerkt.</p>" :
         context.Request.Query.ContainsKey("error") ? "<p class=\"auth-message auth-error\" role=\"alert\">Accountbewerking mislukt. Controleer de ingevoerde gegevens.</p>" : "";
     var activityLog = await ActivityLogSection.RenderAsync(db, context.Request.Query);
-    return AuthPage.Render("Accounts", "Bekijk en beheer de accounts van MeepleOS.", $$"""
-        <details class="account-create"><summary>Nieuw account aanmaken</summary>
-        <form method="post" action="/accounts"><input type="hidden" name="__RequestVerificationToken" value="{{token}}">
-        <label>Gebruikersnaam<input name="username" required></label>
-        <label>Tijdelijk wachtwoord<input name="password" type="password" required minlength="12"></label>
-        <label>Bestaande speler (optioneel)<select name="playerId"><option value="">Geen koppeling</option>{{options}}</select></label>
-        <button type="submit">Account aanmaken</button></form></details>
-        <div class="account-list"><h2>Bestaande accounts ({{accountCount}})</h2>
-        <form class="account-search" method="get" action="/accounts"><label for="account-query">Zoek op gebruikersnaam</label>
-        <div><input id="account-query" type="search" name="q" value="{{searchValue}}" placeholder="Gebruikersnaam"><button type="submit">Zoeken</button></div></form>
-        <p class="account-result-count">{{(accountCount == 0 ? "Geen accounts gevonden." : $"Accounts {firstResult}–{lastResult} van {accountCount}")}}</p>
-        {{accountRows}}{{pagination}}</div>
-        {{activityLog}}
-        """, message, wide: true);
+    var amsterdam = TimeZoneInfo.FindSystemTimeZoneById("Europe/Amsterdam");
+    var today = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, amsterdam).Date;
+    var todayStart = TimeZoneInfo.ConvertTimeToUtc(today, amsterdam);
+    var tomorrowStart = TimeZoneInfo.ConvertTimeToUtc(today.AddDays(1), amsterdam);
+    var todayLogs = db.ActivityLogs.AsNoTracking().Where(x => x.CreatedAt >= todayStart && x.CreatedAt < tomorrowStart);
+    var activityCount = await todayLogs.CountAsync();
+    var failureCount = await todayLogs.CountAsync(x => x.Status == "Failed");
+    var latestActivity = await db.ActivityLogs.AsNoTracking().OrderByDescending(x => x.CreatedAt)
+        .Select(x => (DateTime?)x.CreatedAt).FirstOrDefaultAsync();
+    var latestLabel = latestActivity.HasValue
+        ? TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(latestActivity.Value, DateTimeKind.Utc), amsterdam).ToString("dd-MM-yyyy, HH:mm")
+        : "Nog geen activiteit";
+    var roleValue = roleFilter is "admin" or "user" ? roleFilter : "";
+    return AccountsPage.Render(token, options, searchValue, roleValue, accountCount,
+        firstResult, lastResult, accountRows.ToString(), pagination, activityLog,
+        activityCount, failureCount, latestLabel, showActivity, message);
 }).RequireAuthorization("Admin");
 app.MapPost("/accounts", async (HttpContext context, IAntiforgery antiforgery, MeepleDbContext db,
     UserManager<MeepleUser> users, ManualActivityLogger activity) =>
@@ -243,13 +255,13 @@ app.MapPost("/accounts", async (HttpContext context, IAntiforgery antiforgery, M
     if (!string.IsNullOrEmpty(playerText))
     {
         if (!int.TryParse(playerText, out var parsed) || !await db.Players.AnyAsync(p => p.Id == parsed && p.AccountId == null))
-            return Results.Redirect("/accounts?error=1");
+            return Results.Redirect("/admin?error=1");
         playerId = parsed;
     }
     await using var transaction = await db.Database.BeginTransactionAsync();
     var user = new MeepleUser { UserName = name };
     var created = await users.CreateAsync(user, password);
-    if (!created.Succeeded) return Results.Redirect("/accounts?error=1");
+    if (!created.Succeeded) return Results.Redirect("/admin?error=1");
     if (playerId.HasValue)
     {
         var player = await db.Players.SingleAsync(p => p.Id == playerId.Value && p.AccountId == null);
@@ -263,7 +275,7 @@ app.MapPost("/accounts", async (HttpContext context, IAntiforgery antiforgery, M
     await transaction.CommitAsync();
     await activity.LogAsync(users.GetUserId(context.User)!, "create_account",
         new { accountId = user.Id, username = name, playerId });
-    return Results.Redirect("/accounts?created=1");
+    return Results.Redirect("/admin?created=1");
 }).RequireAuthorization("Admin");
 app.MapPost("/accounts/{id}/rename", async (string id, HttpContext context, IAntiforgery antiforgery,
     UserManager<MeepleUser> users, ManualActivityLogger activity) =>
@@ -273,12 +285,12 @@ app.MapPost("/accounts/{id}/rename", async (string id, HttpContext context, IAnt
     if (user is null) return Results.NotFound();
     var form = await context.Request.ReadFormAsync();
     var name = form["username"].ToString().Trim();
-    if (name.Length is < 1 or > 200) return Results.Redirect("/accounts?error=1");
+    if (name.Length is < 1 or > 200) return Results.Redirect("/admin?error=1");
     var result = await users.SetUserNameAsync(user, name);
     await activity.LogAsync(users.GetUserId(context.User)!, "rename_account",
         new { accountId = id, username = name }, result.Succeeded ? "Success" : "Failed",
         result.Succeeded ? null : "IdentityValidationFailed");
-    return Results.Redirect(result.Succeeded ? "/accounts?updated=1" : "/accounts?error=1");
+    return Results.Redirect(result.Succeeded ? "/admin?updated=1" : "/admin?error=1");
 }).RequireAuthorization("Admin");
 app.MapPost("/accounts/{id}/reset-password", async (string id, HttpContext context, IAntiforgery antiforgery,
     UserManager<MeepleUser> users, ManualActivityLogger activity) =>
@@ -292,19 +304,19 @@ app.MapPost("/accounts/{id}/reset-password", async (string id, HttpContext conte
     await activity.LogAsync(users.GetUserId(context.User)!, "reset_password",
         new { accountId = id }, result.Succeeded ? "Success" : "Failed",
         result.Succeeded ? null : "IdentityValidationFailed");
-    return Results.Redirect(result.Succeeded ? "/accounts?updated=1" : "/accounts?error=1");
+    return Results.Redirect(result.Succeeded ? "/admin?updated=1" : "/admin?error=1");
 }).RequireAuthorization("Admin");
 app.MapPost("/accounts/{id}/link-player", async (string id, HttpContext context, IAntiforgery antiforgery,
     MeepleDbContext db, ManualActivityLogger activity) =>
 {
     await antiforgery.ValidateRequestAsync(context);
     var form = await context.Request.ReadFormAsync();
-    if (!int.TryParse(form["playerId"], out var playerId)) return Results.Redirect("/accounts?error=1");
+    if (!int.TryParse(form["playerId"], out var playerId)) return Results.Redirect("/admin?error=1");
     await using var transaction = await db.Database.BeginTransactionAsync();
     if (!await db.Users.AnyAsync(u => u.Id == id) || await db.Players.AnyAsync(p => p.AccountId == id))
-        return Results.Redirect("/accounts?error=1");
+        return Results.Redirect("/admin?error=1");
     var player = await db.Players.SingleOrDefaultAsync(p => p.Id == playerId && p.AccountId == null);
-    if (player is null) return Results.Redirect("/accounts?error=1");
+    if (player is null) return Results.Redirect("/admin?error=1");
     player.AccountId = id;
     if (!await db.AccountPlayers.AnyAsync(a => a.AccountId == id && a.PlayerId == playerId))
         db.AccountPlayers.Add(new() { AccountId = id, PlayerId = playerId });
@@ -314,7 +326,7 @@ app.MapPost("/accounts/{id}/link-player", async (string id, HttpContext context,
     await transaction.CommitAsync();
     await activity.LogAsync(context.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)!.Value,
         "link_player", new { accountId = id, playerId });
-    return Results.Redirect("/accounts?updated=1");
+    return Results.Redirect("/admin?updated=1");
 }).RequireAuthorization("Admin");
 app.MapStaticAssets().AllowAnonymous();
 app.MapRazorComponents<App>().AddInteractiveServerRenderMode().RequireAuthorization();

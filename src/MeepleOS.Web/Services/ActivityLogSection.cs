@@ -56,14 +56,14 @@ internal static class ActivityLogSection
         static string H(string? value) => WebUtility.HtmlEncode(value ?? "");
         static string Option(string value, string label, string selected) =>
             $"<option value=\"{H(value)}\"{(value == selected ? " selected" : "")}>{H(label)}</option>";
-        string Url(int target) => "/accounts?logPage=" + target
+        string Url(int target) => "/admin?logPage=" + target
             + "&logAccount=" + Uri.EscapeDataString(accountId)
             + "&logTool=" + Uri.EscapeDataString(tool)
             + "&logStatus=" + Uri.EscapeDataString(status);
 
         var html = new StringBuilder();
-        html.Append("<section class=\"activity-log\" aria-labelledby=\"activity-title\"><h2 id=\"activity-title\">MCP-activiteitenlog</h2><p>Inclusief handmatige wijzigingen via de website (website.*).</p>");
-        html.Append("<form method=\"get\" action=\"/accounts\" class=\"activity-filters\">");
+        html.Append("<section class=\"activity-log\" aria-labelledby=\"activity-title\"><h2 id=\"activity-title\">MCP-activiteitenlog</h2>");
+        html.Append("<form method=\"get\" action=\"/admin\" class=\"activity-filters\">");
         html.Append("<label>Account<select name=\"logAccount\">").Append(Option("", "Alle accounts", accountId));
         foreach (var account in accounts)
             html.Append(Option(account.AccountId, $"{account.AccountName} ({account.AccountId})", accountId));

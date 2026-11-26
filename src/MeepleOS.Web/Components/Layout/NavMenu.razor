@@ -20,7 +20,7 @@
             <NavLink href="/statistics">Statistieken</NavLink>
             <NavLink href="/manage">Bewerken</NavLink>
             <NavLink href="/chat">Meeple Companion</NavLink>
-            <AuthorizeView Roles="Admin"><Authorized><a href="/accounts">Accounts</a></Authorized></AuthorizeView>
+            <AuthorizeView Roles="Admin"><Authorized><a href="/admin">Admin</a></Authorized></AuthorizeView>
             <a href="/change-password">Wachtwoord wijzigen</a>
             <form method="post" action="/logout"><AntiforgeryToken /><button type="submit">Uitloggen</button></form>
         </nav>
@@ -38,7 +38,7 @@
             <summary>Account</summary>
             <div class="account-menu-items">
                 <AuthorizeView><Authorized Context="accountState"><span class="signed-in-account">Ingelogd als @accountState.User.Identity?.Name</span></Authorized></AuthorizeView>
-                <AuthorizeView Roles="Admin"><Authorized><a href="/accounts">Accounts</a></Authorized></AuthorizeView>
+                <AuthorizeView Roles="Admin"><Authorized><a href="/admin">Admin</a></Authorized></AuthorizeView>
                 <a href="/change-password">Wachtwoord wijzigen</a>
                 <form method="post" action="/logout"><AntiforgeryToken /><button type="submit">Uitloggen</button></form>
             </div>
