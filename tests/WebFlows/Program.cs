@@ -117,6 +117,29 @@ try
     Check(deniedDelete, "deelnemer kan potje van ander account niet verwijderen");
     var roanOwned = await roanSessions.RecordAsync(game.Id, date.AddDays(4), [new(jeroen.Id), new(pallas.Id)], [jeroen.Id]);
     Check((await sessions.GetAllAsync()).Any(s => s.Id == roanOwned.Id), "potje van Roan zichtbaar bij Jeroen");
+    var unrelatedSessions = new GameSessionService(new GameSessionRepository(factory, new TestAccountContext("unrelated-account")));
+    await using (var db = await factory.CreateDbContextAsync())
+    {
+        // Een losse AccountGameSession-koppeling bewijst geen deelname.
+        db.AccountGameSessions.Add(new AccountGameSession { AccountId = "unrelated-account", GameSessionId = roanOwned.Id });
+        await db.SaveChangesAsync();
+    }
+    Check((await unrelatedSessions.GetAllAsync()).All(s => s.Id != roanOwned.Id), "derde account ziet gedeeld potje niet");
+    Check(await new GameSessionRepository(factory, new TestAccountContext("unrelated-account")).GetByIdAsync(roanOwned.Id) is null,
+        "derde account kan gedeeld potje niet direct ophalen");
+    var deniedUpdate = false;
+    try { await unrelatedSessions.UpdateAsync(roanOwned.Id, JsonSerializer.SerializeToElement(new { notes = "Ongewenst" })); }
+    catch (ArgumentException) { deniedUpdate = true; }
+    Check(deniedUpdate, "derde account kan gedeeld potje niet direct wijzigen");
+    await sessions.UpdateAsync(roanOwned.Id, JsonSerializer.SerializeToElement(new { notes = "Door Jeroen bijgewerkt", playerChanges = new[] { new { playerId = jeroen.Id, score = 77 } } }));
+    Check((await sessions.GetAllAsync()).Single(s => s.Id == roanOwned.Id).Notes == "Door Jeroen bijgewerkt"
+        && (await roanSessions.GetAllAsync()).Single(s => s.Id == roanOwned.Id).Players.Single(p => p.PlayerId == jeroen.Id).Score == 77,
+        "Jeroen wijzigt hetzelfde potje en beide accounts zien de wijziging");
+    await using (var db = await factory.CreateDbContextAsync())
+        Check(await db.GameSessions.CountAsync(s => s.Id == roanOwned.Id) == 1
+            && await db.AccountGameSessions.CountAsync(a => a.GameSessionId == roanOwned.Id) == 2,
+            "gedeeld potje blijft een record met alleen bevoegde accountkoppelingen");
+    Check((await unrelatedSessions.GetAllAsync()).All(s => s.Id != roanOwned.Id), "derde account blijft afgeschermd na wijziging");
     await roanSessions.DeleteAsync(roanOwned.Id);
     await sessions.DeleteAsync(shared.Id);
     await using (var db = await factory.CreateDbContextAsync())

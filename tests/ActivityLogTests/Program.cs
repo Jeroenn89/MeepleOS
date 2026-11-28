@@ -161,6 +161,16 @@ static async Task CheckManualManageAsync(DbContextOptions<MeepleDbContext> optio
     typeof(Manage).GetMethod("StartNewGame", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(page, null);
     Check((string)ReadField("gameName") == "" && (int)ReadField("editGameId") == 0,
         "nieuwknop verlaat de bewerkmodus");
+    Field("games", new List<BoardgameResult> { new(1, "Armadillo", 2, 4, 30) });
+    Field("sessions", new List<GameSessionResult>
+    {
+        new(42, 2, "Dive", new DateOnly(2026, 11, 28), null, [], [])
+    });
+    Field("editSessionId", 42);
+    Field("sessionGameSearch", "Armadillo");
+    typeof(Manage).GetMethod("LoadSession", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(page, null);
+    Check((int)ReadField("sessionGameId") == 2 && (string)ReadField("sessionGameSearch") == "Dive",
+        "geselecteerd potje toont zijn eigen bordspel");
     await using (var db = new MeepleDbContext(options))
     {
         Check(await db.ActivityLogs.CountAsync(x => x.ToolName == "website.add_boardgame") == 1

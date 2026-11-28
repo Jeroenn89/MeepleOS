@@ -206,7 +206,7 @@ public partial class Manage
         }
 
         sessionGameId = session.BoardGameId;
-        sessionGameSearch = games.FirstOrDefault(game => game.Id == sessionGameId)?.Name ?? "";
+        sessionGameSearch = session.BoardGameName;
         sessionDate = session.PlayedAt.ToDateTime(TimeOnly.MinValue);
         notes = session.Notes ?? "";
         selectedExpansionIds = session.Expansions.Select(expansion => expansion.Id).ToHashSet();

@@ -92,8 +92,7 @@ public sealed class GameSessionRepository(IDbContextFactory<MeepleDbContext> dbF
     {
         var accountId = await account.GetAccountIdAsync();
         await using var db = await dbFactory.CreateDbContextAsync();
-        IQueryable<GameSession> query = db.GameSessions.AsNoTracking().Where(x =>
-            db.AccountGameSessions.Any(a => a.AccountId == accountId && a.GameSessionId == x.Id));
+        IQueryable<GameSession> query = AccessibleSessions(db, accountId).AsNoTracking();
 
         if (boardGameId.HasValue)
             query = query.Where(x => x.BoardGameId == boardGameId.Value);
@@ -124,9 +123,9 @@ public sealed class GameSessionRepository(IDbContextFactory<MeepleDbContext> dbF
     {
         var accountId = await account.GetAccountIdAsync();
         await using var db = await dbFactory.CreateDbContextAsync();
-        return await db.GameSessions
+        return await AccessibleSessions(db, accountId)
             .AsNoTracking()
-            .Where(x => x.Id == id && db.AccountGameSessions.Any(a => a.AccountId == accountId && a.GameSessionId == x.Id))
+            .Where(x => x.Id == id)
             .Select(x => new GameSessionResult(x.Id, x.BoardGameId, x.BoardGame.Name,
                 x.PlayedAt, x.Notes, x.Players.OrderBy(p => p.Id)
                     .Select(p => new SessionPlayerResult(p.Id, p.PlayerId, p.Player.Name,
@@ -144,8 +143,8 @@ public sealed class GameSessionRepository(IDbContextFactory<MeepleDbContext> dbF
         var accountId = await account.GetAccountIdAsync();
         await using var db = await dbFactory.CreateDbContextAsync();
         await using var transaction = await db.Database.BeginTransactionAsync();
-        var session = await db.GameSessions.Include(x => x.Players).Include(x => x.Expansions)
-            .SingleOrDefaultAsync(x => x.Id == id && x.CreatedByAccountId == accountId);
+        var session = await AccessibleSessions(db, accountId).Include(x => x.Players).Include(x => x.Expansions)
+            .SingleOrDefaultAsync(x => x.Id == id);
 
         if (session is null)
             return null;
@@ -182,7 +181,9 @@ public sealed class GameSessionRepository(IDbContextFactory<MeepleDbContext> dbF
             GameExpansionId = expansionId
         }).ToList();
         var linkedAccountIds = (await db.Players.Where(x => ids.Contains(x.Id) && x.AccountId != null)
-            .Select(x => x.AccountId!).Distinct().ToListAsync()).Append(accountId).Distinct().ToHashSet();
+            .Select(x => x.AccountId!).Distinct().ToListAsync()).ToHashSet();
+        if (session.CreatedByAccountId is { } creatorId)
+            linkedAccountIds.Add(creatorId);
         var existingLinks = await db.AccountGameSessions.Where(x => x.GameSessionId == id).ToListAsync();
         db.AccountGameSessions.RemoveRange(existingLinks.Where(x => !linkedAccountIds.Contains(x.AccountId)));
         foreach (var linkedId in linkedAccountIds.Where(x => existingLinks.All(a => a.AccountId != x)))
@@ -213,6 +214,11 @@ public sealed class GameSessionRepository(IDbContextFactory<MeepleDbContext> dbF
 
         return true;
     }
+
+    private static IQueryable<GameSession> AccessibleSessions(MeepleDbContext db, string accountId) =>
+        db.GameSessions.Where(x => x.CreatedByAccountId == accountId ||
+            (db.AccountGameSessions.Any(a => a.AccountId == accountId && a.GameSessionId == x.Id) &&
+             x.Players.Any(p => p.Player.AccountId == accountId)));
 
     private static async Task<GameSessionResult> GetByIdAsync(MeepleDbContext db, int id) =>
         await db.GameSessions
